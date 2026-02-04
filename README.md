@@ -127,6 +127,3 @@ LOG_LEVEL=INFO
 NEXT_PUBLIC_API_URL=http://localhost:8000/api
 ```
 
-## 📖 License
-
-MIT License - feel free to use and modify!
