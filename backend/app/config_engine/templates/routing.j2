@@ -1,0 +1,127 @@
+!
+! Routing Configuration
+!
+
+{# ------------------------- #}
+{# Default + Static Routes   #}
+{# ------------------------- #}
+{% if default_route %}
+! Default route
+{% if default_route.next_hop %}
+ip route 0.0.0.0 0.0.0.0 {{ default_route.next_hop }}{% if default_route.distance %} {{ default_route.distance }}{% endif %}
+{% elif default_route.exit_interface %}
+ip route 0.0.0.0 0.0.0.0 {{ default_route.exit_interface }}{% if default_route.distance %} {{ default_route.distance }}{% endif %}
+{% endif %}
+!
+{% endif %}
+
+{% if static_routes and static_routes|length > 0 %}
+! Static routes
+{% for r in static_routes %}
+{% if r.exit_interface and r.next_hop %}
+ip route {{ r.destination }} {{ r.subnet_mask }} {{ r.exit_interface }} {{ r.next_hop }}{% if r.distance %} {{ r.distance }}{% endif %}{% if r.name %} name {{ r.name }}{% endif %}
+{% elif r.next_hop %}
+ip route {{ r.destination }} {{ r.subnet_mask }} {{ r.next_hop }}{% if r.distance %} {{ r.distance }}{% endif %}{% if r.name %} name {{ r.name }}{% endif %}
+{% elif r.exit_interface %}
+ip route {{ r.destination }} {{ r.subnet_mask }} {{ r.exit_interface }}{% if r.distance %} {{ r.distance }}{% endif %}{% if r.name %} name {{ r.name }}{% endif %}
+{% endif %}
+{% endfor %}
+!
+{% endif %}
+
+
+{# ------------------------- #}
+{# OSPF                      #}
+{# ------------------------- #}
+{% if ospf %}
+router ospf {{ ospf.process_id }}
+{% if ospf.router_id %}
+ router-id {{ ospf.router_id }}
+{% endif %}
+
+{% for network in ospf.networks %}
+ network {{ network.network }} {{ network.wildcard }} area {{ network.area }}
+{% endfor %}
+
+{% for passive in ospf.passive_interfaces %}
+ passive-interface {{ passive }}
+{% endfor %}
+
+{% if ospf.default_originate %}
+ default-information originate
+{% endif %}
+!
+
+{% for iface in ospf.interfaces %}
+interface {{ iface.interface }}
+ ip ospf {{ ospf.process_id }} area {{ iface.area }}
+{% if iface.cost %}
+ ip ospf cost {{ iface.cost }}
+{% endif %}
+{% if iface.priority is not none %}
+ ip ospf priority {{ iface.priority }}
+{% endif %}
+!
+{% endfor %}
+{% endif %}
+
+
+{# ------------------------- #}
+{# EIGRP (optional)          #}
+{# ------------------------- #}
+{% if eigrp and eigrp.enabled %}
+router eigrp {{ eigrp.asn }}
+{% if eigrp.router_id %}
+ eigrp router-id {{ eigrp.router_id }}
+{% endif %}
+{% if eigrp.no_auto_summary %}
+ no auto-summary
+{% endif %}
+
+{% for net in eigrp.networks %}
+{% if net.wildcard %}
+ network {{ net.network }} {{ net.wildcard }}
+{% else %}
+ network {{ net.network }}
+{% endif %}
+{% endfor %}
+
+{% for passive in eigrp.passive_interfaces %}
+ passive-interface {{ passive }}
+{% endfor %}
+!
+{% endif %}
+
+
+{# ------------------------- #}
+{# GRE Tunnels               #}
+{# ------------------------- #}
+{% if gre_tunnels and gre_tunnels|length > 0 %}
+{% for tunnel in gre_tunnels %}
+interface Tunnel{{ tunnel.tunnel_number }}
+ ip address {{ tunnel.tunnel_ip }} {{ tunnel.tunnel_mask }}
+
+{% if tunnel.mtu %}
+ ip mtu {{ tunnel.mtu }}
+{% endif %}
+{% if tunnel.adjust_mss %}
+ ip tcp adjust-mss {{ tunnel.adjust_mss }}
+{% endif %}
+
+ tunnel source {{ tunnel.source_interface }}
+ tunnel destination {{ tunnel.destination_ip }}
+ tunnel mode gre ip
+
+{% if tunnel.tunnel_key is not none %}
+ tunnel key {{ tunnel.tunnel_key }}
+{% endif %}
+{% if tunnel.keepalive_seconds %}
+{% if tunnel.keepalive_retries %}
+ keepalive {{ tunnel.keepalive_seconds }} {{ tunnel.keepalive_retries }}
+{% else %}
+ keepalive {{ tunnel.keepalive_seconds }}
+{% endif %}
+{% endif %}
+!
+{% endfor %}
+{% endif %}

@@ -1,0 +1,120 @@
+!
+! Switching Configuration
+!
+
+{# ---------------- VLANs ---------------- #}
+{% if vlans %}
+{% for vlan in vlans %}
+vlan {{ vlan.vlanId }}
+ name {{ vlan.name }}
+!
+{% endfor %}
+{% endif %}
+
+{# ---------------- STP ---------------- #}
+{% if stp %}
+spanning-tree mode {{ stp.mode }}
+
+{# IOS doesn't accept "all" here; use 1-4094 for all #}
+{% set stp_vlans = "1-4094" %}
+{% if stp.vlanScope == "custom" and stp.vlans %}
+{% set stp_vlans = stp.vlans %}
+{% endif %}
+
+{# Emit root/priority ONLY if user actually set it #}
+{% if stp.rootMode == "primarySecondary" and stp.rootRole %}
+spanning-tree vlan {{ stp_vlans }} root {{ stp.rootRole }}
+{% elif stp.rootMode == "manualPriority" and stp.priority is not none %}
+spanning-tree vlan {{ stp_vlans }} priority {{ stp.priority }}
+{% endif %}
+!
+{% endif %}
+
+{# ---------------- Access Ports ---------------- #}
+{% if accessPorts %}
+{% for port in accessPorts %}
+interface {{ port.interface }}
+{% if port.description %}
+ description {{ port.description }}
+{% endif %}
+ switchport mode access
+ switchport access vlan {{ port.vlanId }}
+{% if port.portfast %}
+ spanning-tree portfast
+{% endif %}
+{% if port.bpduGuard %}
+ spanning-tree bpduguard enable
+{% endif %}
+!
+{% endfor %}
+{% endif %}
+
+{# ---------------- Trunk Ports ---------------- #}
+{% if trunkPorts %}
+{% for port in trunkPorts %}
+interface {{ port.interface }}
+{% if port.description %}
+ description {{ port.description }}
+{% endif %}
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+{% if port.allowedVlans and port.allowedVlans != "all" %}
+ switchport trunk allowed vlan {{ port.allowedVlans }}
+{% endif %}
+{% if port.nativeVlan %}
+ switchport trunk native vlan {{ port.nativeVlan }}
+{% endif %}
+{% if port.rootGuard %}
+ spanning-tree guard root
+{% endif %}
+!
+{% endfor %}
+{% endif %}
+
+{# ---------------- EtherChannel ---------------- #}
+{% if etherChannels %}
+{% for ec in etherChannels %}
+{# Decide channel-group mode based on protocol #}
+{% set ch_mode = "on" %}
+{% if ec.protocol == "lacp" %}
+{% set ch_mode = (ec.lacpMode or "active") %}
+{% elif ec.protocol == "pagp" %}
+{% set ch_mode = (ec.pagpMode or "desirable") %}
+{% endif %}
+
+{# Configure members using interface range (cleaner) #}
+{% if ec.members and (ec.members|length) > 0 %}
+interface range {{ ec.members | join(', ') }}
+ channel-group {{ ec.id }} mode {{ ch_mode }}
+!
+{% endif %}
+
+{# Configure Port-channel interface #}
+interface Port-channel{{ ec.id }}
+{% if ec.description %}
+ description {{ ec.description }}
+{% else %}
+ description EtherChannel Bundle {{ ec.id }}
+{% endif %}
+
+{% if ec.channelType == "routed" %}
+ no switchport
+{% if ec.ipAddress and ec.subnetMask %}
+ ip address {{ ec.ipAddress }} {{ ec.subnetMask }}
+{% endif %}
+{% elif ec.channelType == "access" %}
+ switchport mode access
+ switchport access vlan {{ ec.accessVlanId or 10 }}
+{% else %}
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+{% if ec.allowedVlans and ec.allowedVlans != "all" %}
+ switchport trunk allowed vlan {{ ec.allowedVlans }}
+{% endif %}
+{% if ec.nativeVlan %}
+ switchport trunk native vlan {{ ec.nativeVlan }}
+{% endif %}
+{% endif %}
+!
+{% endfor %}
+{% endif %}

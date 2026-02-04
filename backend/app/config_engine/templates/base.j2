@@ -1,0 +1,80 @@
+!
+! Base Configuration
+!
+{% if hostname %}
+hostname {{ hostname }}
+{% endif %}
+
+{% if enable_secret %}
+enable secret {{ enable_secret }}
+{% endif %}
+
+{% if service_password_encryption %}
+service password-encryption
+{% endif %}
+
+{% if domain_name %}
+ip domain-name {{ domain_name }}
+{% endif %}
+
+!
+no ip domain-lookup
+!
+
+{% if banner_motd %}
+banner motd ^
+{{ banner_motd }}
+^
+{% endif %}
+
+{# ------------------------- #}
+{# Local users (for SSH)     #}
+{# ------------------------- #}
+{% if users and users|length > 0 %}
+{% for u in users %}
+{% if u.secret %}
+username {{ u.username }} privilege {{ u.privilege or 1 }} secret {{ u.secret }}
+{% elif u.password %}
+username {{ u.username }} privilege {{ u.privilege or 1 }} password {{ u.password }}
+{% else %}
+{# If neither secret nor password is provided, skip user line #}
+{% endif %}
+{% endfor %}
+!
+{% endif %}
+
+{# ------------------------- #}
+{# SSH enablement            #}
+{# ------------------------- #}
+{% if ssh_enabled %}
+ip ssh version {{ ssh_version or 2 }}
+ip ssh time-out 60
+ip ssh authentication-retries 2
+{% if domain_name %}
+crypto key generate rsa modulus {{ rsa_modulus or 2048 }}
+{% endif %}
+!
+{% endif %}
+
+{# ------------------------- #}
+{# Lines                     #}
+{# ------------------------- #}
+line con 0
+ logging synchronous
+ exec-timeout 0 0
+!
+
+line vty {{ vty_start or 0 }} {{ vty_end or 4 }}
+ logging synchronous
+{% if ssh_enabled %}
+ login local
+ exec-timeout {{ exec_timeout_min or 10 }} {{ exec_timeout_sec or 0 }}
+{% if allow_telnet %}
+ transport input ssh telnet
+{% else %}
+ transport input ssh
+{% endif %}
+{% else %}
+ transport input telnet
+{% endif %}
+!

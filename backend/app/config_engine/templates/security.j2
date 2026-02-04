@@ -1,0 +1,37 @@
+!
+! Security Configuration - Access Control Lists
+!
+{% for acl in standard_acls %}
+! Standard ACL {{ acl.number }}
+{% for entry in acl.entries %}
+{% if entry.source == 'any' %}
+access-list {{ acl.number }} {{ entry.action }} any
+{% elif entry.wildcard %}
+access-list {{ acl.number }} {{ entry.action }} {{ entry.source }} {{ entry.wildcard }}
+{% else %}
+access-list {{ acl.number }} {{ entry.action }} host {{ entry.source }}
+{% endif %}
+{% endfor %}
+!
+{% endfor %}
+{% for acl in extended_acls %}
+{% if acl.number_or_name.isdigit() %}
+! Extended ACL {{ acl.number_or_name }}
+{% for entry in acl.entries %}
+access-list {{ acl.number_or_name }} {{ entry.action }} {{ entry.protocol }} {{ entry.source }}{% if entry.source_wildcard %} {{ entry.source_wildcard }}{% endif %} {{ entry.destination }}{% if entry.destination_wildcard %} {{ entry.destination_wildcard }}{% endif %}{% if entry.port %} {{ entry.port }}{% endif %}
+
+{% endfor %}
+{% else %}
+ip access-list extended {{ acl.number_or_name }}
+{% for entry in acl.entries %}
+ {{ entry.action }} {{ entry.protocol }} {{ entry.source }}{% if entry.source_wildcard %} {{ entry.source_wildcard }}{% endif %} {{ entry.destination }}{% if entry.destination_wildcard %} {{ entry.destination_wildcard }}{% endif %}{% if entry.port %} {{ entry.port }}{% endif %}
+
+{% endfor %}
+{% endif %}
+!
+{% endfor %}
+{% for app in acl_applications %}
+interface {{ app.interface }}
+ ip access-group {{ app.acl }} {{ app.direction }}
+!
+{% endfor %}

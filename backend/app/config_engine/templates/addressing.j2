@@ -1,0 +1,115 @@
+!
+! Addressing Configuration
+!
+
+{# ---------------- Determine if we need ip routing (MSW only) ---------------- #}
+{% set needIpRouting = false %}
+{% if switchType == "msw" %}
+  {# mgmt SVI counts as L3 only if it actually has IP or default route #}
+  {% if management and (management.ipAddress or management.defaultRouteNextHop) %}
+    {% set needIpRouting = true %}
+  {% endif %}
+
+  {% if vlanInterfaces %}
+    {% for svi in vlanInterfaces %}
+      {% if svi.ipAddress %}
+        {% set needIpRouting = true %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if interfaces %}
+    {% for iface in interfaces %}
+      {% if iface.ipAddress %}
+        {% set needIpRouting = true %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% if subinterfaces %}
+    {% for sub in subinterfaces %}
+      {% if sub.ipAddress %}
+        {% set needIpRouting = true %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+{% endif %}
+
+{% if needIpRouting %}
+ip routing
+!
+{% endif %}
+
+{# ---------------- Switch Management SVI ---------------- #}
+{% if management %}
+interface Vlan{{ management.vlanId }}
+{% if management.ipAddress %}
+ ip address {{ management.ipAddress }} {{ management.subnetMask }}
+{% endif %}
+ no shutdown
+!
+{% if switchType == "l2" and management.defaultGateway %}
+ip default-gateway {{ management.defaultGateway }}
+!
+{% endif %}
+{% if switchType == "msw" and management.defaultRouteNextHop %}
+ip route 0.0.0.0 0.0.0.0 {{ management.defaultRouteNextHop }}
+!
+{% endif %}
+{% endif %}
+
+{# ---------------- Optional VLAN SVIs (additional interfaces) ---------------- #}
+{% if vlanInterfaces %}
+{% for svi in vlanInterfaces %}
+  {# Avoid duplicate if user added same VLAN as management SVI #}
+  {% if not management or (svi.vlanId != management.vlanId) %}
+interface Vlan{{ svi.vlanId }}
+{% if svi.description %}
+ description {{ svi.description }}
+{% endif %}
+{% if svi.ipAddress %}
+ ip address {{ svi.ipAddress }} {{ svi.subnetMask }}
+{% endif %}
+{% if svi.shutdown %}
+ shutdown
+{% else %}
+ no shutdown
+{% endif %}
+!
+  {% endif %}
+{% endfor %}
+{% endif %}
+
+{# ---------------- Routed Interfaces ---------------- #}
+{% if interfaces %}
+{% for iface in interfaces %}
+interface {{ iface.interface }}
+{% if iface.description %}
+ description {{ iface.description }}
+{% endif %}
+{% if iface.ipAddress %}
+ ip address {{ iface.ipAddress }} {{ iface.subnetMask }}
+{% endif %}
+{% if iface.shutdown %}
+ shutdown
+{% else %}
+ no shutdown
+{% endif %}
+!
+{% endfor %}
+{% endif %}
+
+{# ---------------- Router-on-a-stick Subinterfaces ---------------- #}
+{% if subinterfaces %}
+{% for sub in subinterfaces %}
+interface {{ sub.parentInterface }}.{{ sub.vlanId }}
+{% if sub.description %}
+ description {{ sub.description }}
+{% endif %}
+ encapsulation dot1Q {{ sub.vlanId }}
+{% if sub.ipAddress %}
+ ip address {{ sub.ipAddress }} {{ sub.subnetMask }}
+{% endif %}
+!
+{% endfor %}
+{% endif %}

@@ -1,0 +1,38 @@
+!
+! Verification Commands for {{ device_name }}
+!
+! === Basic Verification ===
+show running-config
+show startup-config
+show version
+show ip interface brief
+!
+! === Switching Verification ===
+show vlan brief
+show interfaces trunk
+show interfaces status
+show spanning-tree
+show spanning-tree summary
+show etherchannel summary
+show etherchannel port-channel
+!
+! === Routing Verification ===
+show ip route
+show ip route ospf
+show ip ospf
+show ip ospf neighbor
+show ip ospf interface
+show ip protocols
+!
+! === Services Verification ===
+show standby
+show standby brief
+show ip dhcp pool
+show ip dhcp binding
+show ip nat translations
+show ip nat statistics
+!
+! === Security Verification ===
+show access-lists
+show ip access-lists
+!
