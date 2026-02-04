@@ -15,6 +15,17 @@ type VlanSvi = {
   subnetMask: string
   description?: string
   shutdown: boolean
+  vrf?: string
+}
+
+interface RoutedInterface {
+  interface: string
+  ipAddress: string
+  subnetMask: string
+  description?: string
+  shutdown: boolean
+  vrf?: string
+  cryptoMap?: string
 }
 
 interface AddressingConfig {
@@ -33,20 +44,15 @@ interface AddressingConfig {
   vlanInterfaces: VlanSvi[]
 
   // Routed interfaces (routers; optional for MSW)
-  interfaces: Array<{
-    interface: string
-    ipAddress: string
-    subnetMask: string
-    description?: string
-    shutdown: boolean
-  }>
+  interfaces: RoutedInterface[]
 
-  // Router-on-a-stick (routers; optional for MSW if you ever use it)
+  // Router-on-a-stick
   subinterfaces: Array<{
     parentInterface: string
     vlanId: number
     ipAddress: string
     subnetMask: string
+    vrf?: string
   }>
 }
 
@@ -70,6 +76,7 @@ const MASK_OPTIONS = [
   { v: '255.255.255.252', l: '/30 - 255.255.255.252' },
   { v: '255.255.0.0', l: '/16 - 255.255.0.0' },
   { v: '255.0.0.0', l: '/8 - 255.0.0.0' },
+  { v: '255.255.255.255', l: '/32 - 255.255.255.255' },
 ]
 
 function defaultConfig(deviceType: string, switchType?: SwitchType): AddressingConfig {
@@ -193,6 +200,7 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
           ipAddress: '',
           subnetMask: '255.255.255.0',
           shutdown: false,
+          vrf: '',
         },
       ],
     }
@@ -201,28 +209,8 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
 
   const updateVlanInterface = (index: number, field: keyof VlanSvi, value: any) => {
     const updated = [...(localConfig.vlanInterfaces || [])]
-    const cur = updated[index] ?? {
-      vlanId: 10,
-      ipAddress: '',
-      subnetMask: '255.255.255.0',
-      shutdown: false,
-    }
-
-    const next: VlanSvi = {
-      ...cur,
-      [field]: value,
-      vlanId: Number.isFinite(Number((field === 'vlanId' ? value : cur.vlanId) ?? 10))
-        ? Number(field === 'vlanId' ? value : cur.vlanId)
-        : 10,
-      ipAddress: typeof (field === 'ipAddress' ? value : cur.ipAddress) === 'string'
-        ? String(field === 'ipAddress' ? value : cur.ipAddress)
-        : '',
-      subnetMask: typeof (field === 'subnetMask' ? value : cur.subnetMask) === 'string'
-        ? String(field === 'subnetMask' ? value : cur.subnetMask)
-        : '255.255.255.0',
-      shutdown: Boolean(field === 'shutdown' ? value : cur.shutdown),
-    }
-
+    const cur = updated[index]
+    const next: VlanSvi = { ...cur, [field]: value }
     updated[index] = next
     pushUpdate({ ...localConfig, vlanInterfaces: updated })
   }
@@ -237,7 +225,6 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
     // Only allow adding a routed interface that is available (not already used elsewhere).
     const opts = routedInterfaceOptions()
     const alreadyUsed = new Set((localConfig.interfaces || []).map((i) => i.interface))
-    // opts is an array of interface names (strings)
     const firstAvailable = opts.find((i) => !alreadyUsed.has(i))
     if (!firstAvailable) return
 
@@ -250,10 +237,40 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
           ipAddress: '',
           subnetMask: '255.255.255.0',
           shutdown: false,
+          vrf: '',
+          cryptoMap: '',
         },
       ],
     }
     pushUpdate(newConfig)
+  }
+
+  const addLoopback = () => {
+    const currentLoopbacks = localConfig.interfaces
+      .map((i) => i.interface)
+      .filter((n) => n.toLowerCase().startsWith('loopback'))
+    
+    // Find first available Loopback number
+    let nextId = 0
+    while (currentLoopbacks.some(n => n.toLowerCase() === `loopback${nextId}`)) {
+        nextId++
+    }
+
+    const newConfig: AddressingConfig = {
+        ...localConfig,
+        interfaces: [
+          ...localConfig.interfaces,
+          {
+            interface: `Loopback${nextId}`,
+            ipAddress: '',
+            subnetMask: '255.255.255.255',
+            shutdown: false,
+            description: 'Loopback Interface',
+            vrf: '',
+          },
+        ],
+      }
+      pushUpdate(newConfig)
   }
 
   const updateInterface = (index: number, field: string, value: any) => {
@@ -429,6 +446,19 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
                       </div>
 
                       <div className="flex items-end">
+                          <div className="w-full">
+                            <label className="block text-xs font-medium text-slate-600 mb-1">VRF</label>
+                            <input
+                              type="text"
+                              value={svi.vrf || ''}
+                              onChange={(e) => updateVlanInterface(idx, 'vrf', e.target.value)}
+                              placeholder="e.g. MGMT"
+                              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                            />
+                          </div>
+                      </div>
+
+                      <div className="flex items-end justify-between">
                         <label className="flex items-center gap-2 text-sm">
                           <input
                             type="checkbox"
@@ -438,12 +468,9 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
                           />
                           Enabled
                         </label>
-                      </div>
-
-                      <div className="flex items-end">
                         <button
                           onClick={() => removeVlanInterface(idx)}
-                          className="ml-auto px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm"
+                          className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm"
                         >
                           Remove
                         </button>
@@ -475,12 +502,20 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
             <h3 className="text-lg font-semibold text-slate-800">
               {isRouter ? 'Interface Addressing' : 'Routed Interfaces (optional)'}
             </h3>
-            <button
-              onClick={addInterface}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-            >
-              + Add Interface
-            </button>
+            <div className="flex gap-2">
+                <button
+                onClick={addLoopback}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
+                >
+                + Add Loopback
+                </button>
+                <button
+                onClick={addInterface}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                >
+                + Add Interface
+                </button>
+            </div>
           </div>
 
           {localConfig.interfaces.length === 0 ? (
@@ -489,22 +524,33 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
             </div>
           ) : (
             <div className="space-y-4">
-              {localConfig.interfaces.map((iface, index) => (
-                <div key={index} className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+              {localConfig.interfaces.map((iface, index) => {
+                  const isLoopback = iface.interface.toLowerCase().startsWith('loopback');
+                  return (
+                <div key={index} className={`border rounded-lg p-4 ${isLoopback ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200'}`}>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-slate-600 mb-1">Interface</label>
-                      <select
-                        value={iface.interface}
-                        onChange={(e) => updateInterface(index, 'interface', e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                      >
-                        {routedInterfaceOptions(iface.interface).map((i) => (
-                          <option key={i} value={i}>
-                            {i}
-                          </option>
-                        ))}
-                      </select>
+                      {isLoopback ? (
+                          <input 
+                            type="text"
+                            value={iface.interface}
+                            disabled
+                            className="w-full px-3 py-2 border border-indigo-200 bg-indigo-100 text-indigo-800 rounded-lg text-sm font-bold"
+                          />
+                      ) : (
+                        <select
+                            value={iface.interface}
+                            onChange={(e) => updateInterface(index, 'interface', e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        >
+                            {routedInterfaceOptions(iface.interface).map((i) => (
+                            <option key={i} value={i}>
+                                {i}
+                            </option>
+                            ))}
+                        </select>
+                      )}
                     </div>
 
                     <div>
@@ -533,7 +579,7 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
                       </select>
                     </div>
 
-                    <div className="flex items-end gap-2">
+                    <div className="flex items-end gap-2 justify-between">
                       <label className="flex items-center gap-2 text-sm">
                         <input
                           type="checkbox"
@@ -545,25 +591,47 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
                       </label>
                       <button
                         onClick={() => removeInterface(index)}
-                        className="ml-auto px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm"
+                        className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm"
                       >
                         Remove
                       </button>
                     </div>
                   </div>
 
-                  <div className="mt-3">
-                    <label className="block text-sm font-medium text-slate-600 mb-1">Description (optional)</label>
-                    <input
-                      type="text"
-                      value={iface.description || ''}
-                      onChange={(e) => updateInterface(index, 'description', e.target.value)}
-                      placeholder="Connection to Core"
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
+                      <div className="md:col-span-1">
+                        <label className="block text-sm font-medium text-slate-600 mb-1">Description (optional)</label>
+                        <input
+                            type="text"
+                            value={iface.description || ''}
+                            onChange={(e) => updateInterface(index, 'description', e.target.value)}
+                            placeholder="Connection to Core"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-600 mb-1">VRF (optional)</label>
+                        <input
+                            type="text"
+                            value={iface.vrf || ''}
+                            onChange={(e) => updateInterface(index, 'vrf', e.target.value)}
+                            placeholder="e.g. CUST_A"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        />
+                      </div>
+                       <div>
+                        <label className="block text-sm font-medium text-slate-600 mb-1">Crypto Map (VPN)</label>
+                        <input
+                            type="text"
+                            value={iface.cryptoMap || ''}
+                            onChange={(e) => updateInterface(index, 'cryptoMap', e.target.value)}
+                            placeholder="e.g. MY_VPN_MAP"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        />
+                      </div>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>

@@ -5,6 +5,8 @@ interface Interface {
   connected: boolean
 }
 
+// --- Basic Routing Models ---
+
 interface DefaultRoute {
   nextHop?: string
   exitInterface?: string
@@ -18,7 +20,10 @@ interface StaticRoute {
   exitInterface?: string
   distance?: number
   name?: string
+  vrf?: string // New: VRF support
 }
+
+// --- Dynamic Routing Models ---
 
 interface OspfNetwork {
   network: string
@@ -40,6 +45,7 @@ interface OspfConfig {
   passiveInterfaces: string[]
   defaultOriginate: boolean
   interfaces: OspfInterface[]
+  vrf?: string // New: VRF support
 }
 
 interface EigrpNetwork {
@@ -56,6 +62,31 @@ interface EigrpConfig {
   passiveInterfaces: string[]
 }
 
+interface BGPNeighbor {
+  ip: string
+  remoteAs: number
+  updateSource?: string
+  nextHopSelf?: boolean
+  activateVpnv4?: boolean // New: MPLS/VPN support
+}
+
+interface BGPConfig {
+  asn: number
+  routerId?: string
+  neighbors: BGPNeighbor[]
+  networks: string[]
+}
+
+// --- Advanced Features ---
+
+interface VRFConfig {
+  name: string
+  rd: string
+  routeTargetExport?: string
+  routeTargetImport?: string
+  description?: string
+}
+
 interface GreTunnel {
   tunnelNumber: number
   sourceInterface: string
@@ -67,6 +98,7 @@ interface GreTunnel {
   tunnelKey?: number
   keepaliveSeconds?: number
   keepaliveRetries?: number
+  ipsecProfile?: string // New: Link to Crypto Map/Profile
 }
 
 interface RoutingConfig {
@@ -74,7 +106,9 @@ interface RoutingConfig {
   staticRoutes?: StaticRoute[]
   ospf?: OspfConfig | null
   eigrp?: EigrpConfig | null
+  bgp?: BGPConfig | null
   greTunnels?: GreTunnel[]
+  vrfs?: VRFConfig[]
 }
 
 interface Props {
@@ -97,8 +131,10 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
     defaultRoute: null,
     staticRoutes: [],
     ospf: null,
-    eigrp: { enabled: false, asn: 100, noAutoSummary: true, networks: [], passiveInterfaces: [] },
+    eigrp: null,
+    bgp: null,
     greTunnels: [],
+    vrfs: [],
   }
 
   const [routingConfig, setRoutingConfig] = useState<RoutingConfig>(config || defaultConfig)
@@ -126,6 +162,34 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
     onUpdate(newConfig)
   }
 
+  // --- Helpers for VRF Dropdowns ---
+  const vrfOptions = useMemo(() => {
+    return (routingConfig.vrfs || []).map(v => v.name);
+  }, [routingConfig.vrfs]);
+
+
+  // ---------------- VRF Logic ----------------
+  const addVrf = () => {
+    const vrfs = routingConfig.vrfs || []
+    updateConfig({
+      vrfs: [
+        ...vrfs,
+        { name: `VRF${vrfs.length + 1}`, rd: '100:1', routeTargetExport: '', routeTargetImport: '' }
+      ]
+    })
+  }
+
+  const updateVrf = (idx: number, field: keyof VRFConfig, value: string) => {
+    const vrfs = [...(routingConfig.vrfs || [])]
+    vrfs[idx] = { ...vrfs[idx], [field]: value }
+    updateConfig({ vrfs })
+  }
+
+  const removeVrf = (idx: number) => {
+    updateConfig({ vrfs: (routingConfig.vrfs || []).filter((_, i) => i !== idx) })
+  }
+
+
   // ---------------- Default route ----------------
   const toggleDefaultRoute = (enabled: boolean) => {
     if (!enabled) return updateConfig({ defaultRoute: null })
@@ -138,7 +202,7 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
     updateConfig({
       staticRoutes: [
         ...routes,
-        { destination: '', subnetMask: '255.255.255.0', nextHop: '', exitInterface: '', distance: undefined, name: '' },
+        { destination: '', subnetMask: '255.255.255.0', nextHop: '', exitInterface: '', distance: undefined, name: '', vrf: '' },
       ],
     })
   }
@@ -164,6 +228,7 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
         passiveInterfaces: [],
         defaultOriginate: false,
         interfaces: [],
+        vrf: ''
       },
     })
   }
@@ -217,46 +282,37 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
     updateConfig({ ospf: { ...ospf, passiveInterfaces: Array.from(set).sort() } })
   }
 
-  // ---------------- EIGRP ----------------
-  const toggleEigrp = (enabled: boolean) => {
-    const eigrp = routingConfig.eigrp || {
-      enabled: false,
-      asn: 100,
-      routerId: '',
-      noAutoSummary: true,
-      networks: [],
-      passiveInterfaces: [],
-    }
-    updateConfig({ eigrp: { ...eigrp, enabled } })
+  // ---------------- BGP Logic ----------------
+  const toggleBgp = (enabled: boolean) => {
+    if (!enabled) return updateConfig({ bgp: null })
+    updateConfig({
+        bgp: {
+            asn: 65000,
+            routerId: '',
+            neighbors: [],
+            networks: []
+        }
+    })
   }
 
-  const addEigrpNetwork = () => {
-    const eigrp = routingConfig.eigrp
-    if (!eigrp) return
-    updateConfig({ eigrp: { ...eigrp, networks: [...(eigrp.networks || []), { network: '', wildcard: '' }] } })
+  const addBgpNeighbor = () => {
+    const bgp = routingConfig.bgp
+    if (!bgp) return
+    updateConfig({ bgp: { ...bgp, neighbors: [...bgp.neighbors, { ip: '', remoteAs: 65000, nextHopSelf: false, activateVpnv4: false }] } })
   }
 
-  const updateEigrpNetwork = (idx: number, field: keyof EigrpNetwork, value: any) => {
-    const eigrp = routingConfig.eigrp
-    if (!eigrp) return
-    const networks = [...(eigrp.networks || [])]
-    networks[idx] = { ...networks[idx], [field]: value }
-    updateConfig({ eigrp: { ...eigrp, networks } })
+  const updateBgpNeighbor = (idx: number, field: keyof BGPNeighbor, value: any) => {
+    const bgp = routingConfig.bgp
+    if (!bgp) return
+    const neighbors = [...bgp.neighbors]
+    neighbors[idx] = { ...neighbors[idx], [field]: value }
+    updateConfig({ bgp: { ...bgp, neighbors } })
   }
 
-  const removeEigrpNetwork = (idx: number) => {
-    const eigrp = routingConfig.eigrp
-    if (!eigrp) return
-    updateConfig({ eigrp: { ...eigrp, networks: (eigrp.networks || []).filter((_, i) => i !== idx) } })
-  }
-
-  const toggleEigrpPassive = (ifaceName: string) => {
-    const eigrp = routingConfig.eigrp
-    if (!eigrp) return
-    const set = new Set(eigrp.passiveInterfaces || [])
-    if (set.has(ifaceName)) set.delete(ifaceName)
-    else set.add(ifaceName)
-    updateConfig({ eigrp: { ...eigrp, passiveInterfaces: Array.from(set).sort() } })
+  const removeBgpNeighbor = (idx: number) => {
+    const bgp = routingConfig.bgp
+    if (!bgp) return
+    updateConfig({ bgp: { ...bgp, neighbors: bgp.neighbors.filter((_, i) => i !== idx) } })
   }
 
   // ---------------- VPN (GRE) ----------------
@@ -272,11 +328,12 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
           destinationIp: '',
           tunnelIp: '',
           tunnelMask: '255.255.255.252',
-          mtu: undefined,
-          adjustMss: undefined,
+          mtu: 1400,
+          adjustMss: 1360,
           tunnelKey: undefined,
-          keepaliveSeconds: undefined,
-          keepaliveRetries: undefined,
+          keepaliveSeconds: 10,
+          keepaliveRetries: 3,
+          ipsecProfile: '' // New field
         },
       ],
     })
@@ -294,7 +351,47 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
 
   return (
     <div className="space-y-6">
-      {/* Default Route */}
+
+      {/* --- VRF Configuration --- */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">VRF Configuration</h3>
+            <p className="text-sm text-slate-600">Define Virtual Routing and Forwarding instances (VRF-Lite/MPLS).</p>
+          </div>
+          <button type="button" onClick={addVrf} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+            Add VRF
+          </button>
+        </div>
+        <div className="space-y-4">
+           {(routingConfig.vrfs || []).map((vrf, idx) => (
+             <div key={idx} className="grid md:grid-cols-5 gap-3 items-end p-3 border border-slate-200 rounded-lg bg-slate-50">
+               <div>
+                  <label className="block text-xs font-medium text-slate-700">Name</label>
+                  <input type="text" value={vrf.name} onChange={(e) => updateVrf(idx, 'name', e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" placeholder="e.g. CUSTOMER_A" />
+               </div>
+               <div>
+                  <label className="block text-xs font-medium text-slate-700">RD</label>
+                  <input type="text" value={vrf.rd} onChange={(e) => updateVrf(idx, 'rd', e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" placeholder="100:1" />
+               </div>
+               <div>
+                  <label className="block text-xs font-medium text-slate-700">Export RT</label>
+                  <input type="text" value={vrf.routeTargetExport || ''} onChange={(e) => updateVrf(idx, 'routeTargetExport', e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" placeholder="100:1" />
+               </div>
+               <div>
+                  <label className="block text-xs font-medium text-slate-700">Import RT</label>
+                  <input type="text" value={vrf.routeTargetImport || ''} onChange={(e) => updateVrf(idx, 'routeTargetImport', e.target.value)} className="w-full px-3 py-2 border rounded-md text-sm" placeholder="100:1" />
+               </div>
+               <div>
+                  <button type="button" onClick={() => removeVrf(idx)} className="text-red-600 text-sm hover:underline">Remove</button>
+               </div>
+             </div>
+           ))}
+           {(routingConfig.vrfs || []).length === 0 && <p className="text-sm text-slate-400 italic">No VRFs defined.</p>}
+        </div>
+      </div>
+
+      {/* --- Default Route --- */}
       <div className="bg-white border border-slate-200 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -325,7 +422,7 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Exit Interface (optional)</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Exit Interface</label>
               <select
                 value={routingConfig.defaultRoute.exitInterface || ''}
                 onChange={(e) => updateConfig({ defaultRoute: { ...routingConfig.defaultRoute!, exitInterface: e.target.value } })}
@@ -333,41 +430,22 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
               >
                 <option value="">—</option>
                 {optionsWithCurrent(routingConfig.defaultRoute.exitInterface).map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
+                  <option key={name} value={name}>{name}</option>
                 ))}
               </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Distance (optional)</label>
-              <input
-                type="number"
-                value={routingConfig.defaultRoute.distance ?? ''}
-                onChange={(e) => updateConfig({ defaultRoute: { ...routingConfig.defaultRoute!, distance: nOrUndef(e.target.value) } })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                placeholder="1-255"
-                min={1}
-                max={255}
-              />
             </div>
           </div>
         )}
       </div>
 
-      {/* Static Routes */}
+      {/* --- Static Routes --- */}
       <div className="bg-white border border-slate-200 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">Static Routes</h3>
             <p className="text-sm text-slate-600">Add static routes for specific networks.</p>
           </div>
-          <button
-            type="button"
-            onClick={addStaticRoute}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-          >
+          <button type="button" onClick={addStaticRoute} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
             Add Route
           </button>
         </div>
@@ -378,95 +456,34 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
               <div className="grid md:grid-cols-6 gap-3">
                 <div className="md:col-span-2">
                   <label className="block text-xs font-medium text-slate-700 mb-1">Destination</label>
-                  <input
-                    type="text"
-                    value={r.destination}
-                    onChange={(e) => updateStaticRoute(idx, 'destination', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="e.g. 10.10.0.0"
-                  />
+                  <input type="text" value={r.destination} onChange={(e) => updateStaticRoute(idx, 'destination', e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="10.10.0.0" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-700 mb-1">Mask</label>
-                  <input
-                    type="text"
-                    value={r.subnetMask}
-                    onChange={(e) => updateStaticRoute(idx, 'subnetMask', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="255.255.255.0"
-                  />
+                  <input type="text" value={r.subnetMask} onChange={(e) => updateStaticRoute(idx, 'subnetMask', e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="255.255.255.0" />
+                </div>
+                <div className="md:col-span-1">
+                   <label className="block text-xs font-medium text-slate-700 mb-1">Next Hop</label>
+                   <input type="text" value={r.nextHop || ''} onChange={(e) => updateStaticRoute(idx, 'nextHop', e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Next Hop</label>
-                  <input
-                    type="text"
-                    value={r.nextHop || ''}
-                    onChange={(e) => updateStaticRoute(idx, 'nextHop', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="e.g. 192.0.2.1"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Exit Iface</label>
-                  <select
-                    value={r.exitInterface || ''}
-                    onChange={(e) => updateStaticRoute(idx, 'exitInterface', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                  >
-                    <option value="">—</option>
-                    {optionsWithCurrent(r.exitInterface).map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
+                  <label className="block text-xs font-medium text-slate-700 mb-1">VRF</label>
+                  <select value={r.vrf || ''} onChange={(e) => updateStaticRoute(idx, 'vrf', e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm">
+                     <option value="">Global</option>
+                     {vrfOptions.map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Distance</label>
-                  <input
-                    type="number"
-                    value={r.distance ?? ''}
-                    onChange={(e) => updateStaticRoute(idx, 'distance', nOrUndef(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="optional"
-                    min={1}
-                    max={255}
-                  />
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-3 gap-3 mt-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Name (optional)</label>
-                  <input
-                    type="text"
-                    value={r.name || ''}
-                    onChange={(e) => updateStaticRoute(idx, 'name', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="e.g. TO_ISP"
-                  />
-                </div>
-
-                <div className="md:col-span-2 flex items-end justify-end">
-                  <button
-                    type="button"
-                    onClick={() => removeStaticRoute(idx)}
-                    className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm"
-                  >
-                    Remove
-                  </button>
+                <div className="flex items-end justify-end">
+                  <button type="button" onClick={() => removeStaticRoute(idx)} className="text-red-600 text-sm py-2">Remove</button>
                 </div>
               </div>
             </div>
           ))}
-
-          {(routingConfig.staticRoutes || []).length === 0 && (
-            <p className="text-sm text-slate-500">No static routes configured.</p>
-          )}
+          {(routingConfig.staticRoutes || []).length === 0 && <p className="text-sm text-slate-500">No static routes configured.</p>}
         </div>
       </div>
 
-      {/* OSPF */}
+      {/* --- OSPF --- */}
       <div className="bg-white border border-slate-200 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -481,475 +498,178 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
 
         {routingConfig.ospf && (
           <div className="space-y-6">
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Process ID</label>
-                <input
-                  type="number"
-                  value={routingConfig.ospf.processId}
-                  onChange={(e) => updateConfig({ ospf: { ...routingConfig.ospf!, processId: Number(e.target.value) } })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                  min={1}
-                  max={65535}
-                />
+                <input type="number" value={routingConfig.ospf.processId} onChange={(e) => updateConfig({ ospf: { ...routingConfig.ospf!, processId: Number(e.target.value) } })} className="w-full px-3 py-2 border rounded-lg text-sm" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Router ID (optional)</label>
-                <input
-                  type="text"
-                  value={routingConfig.ospf.routerId || ''}
-                  onChange={(e) => updateConfig({ ospf: { ...routingConfig.ospf!, routerId: e.target.value } })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                  placeholder="e.g. 1.1.1.1"
-                />
+                <label className="block text-sm font-medium text-slate-700 mb-1">Router ID</label>
+                <input type="text" value={routingConfig.ospf.routerId || ''} onChange={(e) => updateConfig({ ospf: { ...routingConfig.ospf!, routerId: e.target.value } })} className="w-full px-3 py-2 border rounded-lg text-sm" />
               </div>
-              <div className="flex items-end">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={routingConfig.ospf.defaultOriginate}
-                    onChange={(e) => updateConfig({ ospf: { ...routingConfig.ospf!, defaultOriginate: e.target.checked } })}
-                  />
-                  Default Originate
-                </label>
+              <div>
+                 <label className="block text-sm font-medium text-slate-700 mb-1">VRF Instance</label>
+                 <select value={routingConfig.ospf.vrf || ''} onChange={(e) => updateConfig({ ospf: { ...routingConfig.ospf!, vrf: e.target.value } })} className="w-full px-3 py-2 border rounded-lg text-sm">
+                     <option value="">Global</option>
+                     {vrfOptions.map(v => <option key={v} value={v}>{v}</option>)}
+                 </select>
               </div>
             </div>
 
             {/* OSPF Networks */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-md font-semibold text-slate-900">Networks</h4>
-                <button
-                  type="button"
-                  onClick={addOspfNetwork}
-                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                >
-                  Add Network
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {routingConfig.ospf.networks.map((n, idx) => (
-                  <div key={idx} className="grid md:grid-cols-5 gap-3 items-end p-3 border border-slate-200 rounded-lg">
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Network</label>
-                      <input
-                        type="text"
-                        value={n.network}
-                        onChange={(e) => updateOspfNetwork(idx, 'network', e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        placeholder="e.g. 10.0.0.0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Wildcard</label>
-                      <input
-                        type="text"
-                        value={n.wildcard}
-                        onChange={(e) => updateOspfNetwork(idx, 'wildcard', e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        placeholder="0.0.0.255"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Area</label>
-                      <input
-                        type="number"
-                        value={n.area}
-                        onChange={(e) => updateOspfNetwork(idx, 'area', Number(e.target.value))}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        min={0}
-                      />
-                    </div>
-                    <div className="flex justify-end">
-                      <button type="button" onClick={() => removeOspfNetwork(idx)} className="text-red-600 text-sm">
-                        Remove
-                      </button>
-                    </div>
+            <div className="border-t pt-4">
+               <div className="flex justify-between items-center mb-2">
+                 <h4 className="text-sm font-semibold">Networks</h4>
+                 <button type="button" onClick={addOspfNetwork} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Add Network</button>
+               </div>
+               {routingConfig.ospf.networks.map((n, idx) => (
+                  <div key={idx} className="grid grid-cols-3 gap-2 mb-2">
+                     <input type="text" placeholder="Network" value={n.network} onChange={(e) => updateOspfNetwork(idx, 'network', e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                     <input type="text" placeholder="Wildcard" value={n.wildcard} onChange={(e) => updateOspfNetwork(idx, 'wildcard', e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                     <div className="flex gap-2">
+                        <input type="number" placeholder="Area" value={n.area} onChange={(e) => updateOspfNetwork(idx, 'area', Number(e.target.value))} className="border rounded px-2 py-1 text-sm w-20" />
+                        <button type="button" onClick={() => removeOspfNetwork(idx)} className="text-red-500 text-xs">x</button>
+                     </div>
                   </div>
-                ))}
-
-                {routingConfig.ospf.networks.length === 0 && (
-                  <p className="text-sm text-slate-500">No OSPF networks configured.</p>
-                )}
-              </div>
-            </div>
-
-            {/* OSPF Interface bindings */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-md font-semibold text-slate-900">Interfaces</h4>
-                <button
-                  type="button"
-                  onClick={addOspfInterface}
-                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                >
-                  Add Interface
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {routingConfig.ospf.interfaces.map((iCfg, idx) => (
-                  <div key={idx} className="grid md:grid-cols-6 gap-3 items-end p-3 border border-slate-200 rounded-lg">
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Interface</label>
-                      <select
-                        value={iCfg.interface}
-                        onChange={(e) => updateOspfInterface(idx, 'interface', e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                      >
-                        <option value="">Select interface</option>
-                        {optionsWithCurrent(iCfg.interface).map((name) => (
-                          <option key={name} value={name}>
-                            {name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Area</label>
-                      <input
-                        type="number"
-                        value={iCfg.area}
-                        onChange={(e) => updateOspfInterface(idx, 'area', Number(e.target.value))}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        min={0}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Cost</label>
-                      <input
-                        type="number"
-                        value={iCfg.cost ?? ''}
-                        onChange={(e) => updateOspfInterface(idx, 'cost', nOrUndef(e.target.value))}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        min={1}
-                        placeholder="optional"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Priority</label>
-                      <input
-                        type="number"
-                        value={iCfg.priority ?? ''}
-                        onChange={(e) => updateOspfInterface(idx, 'priority', nOrUndef(e.target.value))}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        min={0}
-                        max={255}
-                        placeholder="optional"
-                      />
-                    </div>
-                    <div className="flex justify-end">
-                      <button type="button" onClick={() => removeOspfInterface(idx)} className="text-red-600 text-sm">
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                {routingConfig.ospf.interfaces.length === 0 && (
-                  <p className="text-sm text-slate-500">No OSPF interfaces configured.</p>
-                )}
-              </div>
-            </div>
-
-            {/* Passive interfaces */}
-            <div>
-              <h4 className="text-md font-semibold text-slate-900 mb-2">Passive Interfaces</h4>
-              <p className="text-sm text-slate-600 mb-3">Select interfaces that should not form OSPF adjacencies.</p>
-
-              <div className="flex flex-wrap gap-2">
-                {optionsWithCurrent(undefined).map((name) => (
-                  <button
-                    type="button"
-                    key={name}
-                    onClick={() => toggleOspfPassive(name)}
-                    className={`px-3 py-1 rounded-full text-sm border ${
-                      (routingConfig.ospf!.passiveInterfaces || []).includes(name)
-                        ? 'bg-blue-50 border-blue-300 text-blue-800'
-                        : 'bg-white border-slate-300 text-slate-700'
-                    }`}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
+               ))}
             </div>
           </div>
         )}
       </div>
 
-      {/* EIGRP */}
+      {/* --- BGP --- */}
       <div className="bg-white border border-slate-200 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">EIGRP</h3>
-            <p className="text-sm text-slate-600">Optional: configure EIGRP (classic, CCNA-level).</p>
+            <h3 className="text-lg font-semibold text-slate-900">BGP</h3>
+            <p className="text-sm text-slate-600">Configure Border Gateway Protocol.</p>
           </div>
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={!!routingConfig.eigrp?.enabled}
-              onChange={(e) => toggleEigrp(e.target.checked)}
-            />
+            <input type="checkbox" checked={!!routingConfig.bgp} onChange={(e) => toggleBgp(e.target.checked)} />
             Enable
           </label>
         </div>
 
-        {routingConfig.eigrp?.enabled && (
-          <div className="space-y-6">
-            <div className="grid md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">ASN</label>
-                <input
-                  type="number"
-                  value={routingConfig.eigrp.asn}
-                  onChange={(e) => updateConfig({ eigrp: { ...routingConfig.eigrp!, asn: Number(e.target.value) } })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                  min={1}
-                  max={65535}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Router ID (optional)</label>
-                <input
-                  type="text"
-                  value={routingConfig.eigrp.routerId || ''}
-                  onChange={(e) => updateConfig({ eigrp: { ...routingConfig.eigrp!, routerId: e.target.value } })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                  placeholder="e.g. 2.2.2.2"
-                />
-              </div>
-              <div className="flex items-end">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={routingConfig.eigrp.noAutoSummary}
-                    onChange={(e) => updateConfig({ eigrp: { ...routingConfig.eigrp!, noAutoSummary: e.target.checked } })}
-                  />
-                  No Auto Summary
-                </label>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-md font-semibold text-slate-900">Networks</h4>
-                <button
-                  type="button"
-                  onClick={addEigrpNetwork}
-                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                >
-                  Add Network
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {(routingConfig.eigrp.networks || []).map((n, idx) => (
-                  <div key={idx} className="grid md:grid-cols-5 gap-3 items-end p-3 border border-slate-200 rounded-lg">
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Network</label>
-                      <input
-                        type="text"
-                        value={n.network}
-                        onChange={(e) => updateEigrpNetwork(idx, 'network', e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        placeholder="e.g. 10.0.0.0"
-                      />
+        {routingConfig.bgp && (
+            <div className="space-y-6">
+                <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Local ASN</label>
+                        <input type="number" value={routingConfig.bgp.asn} onChange={(e) => updateConfig({ bgp: { ...routingConfig.bgp!, asn: Number(e.target.value) } })} className="w-full px-3 py-2 border rounded-lg text-sm" />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Wildcard (optional)</label>
-                      <input
-                        type="text"
-                        value={n.wildcard || ''}
-                        onChange={(e) => updateEigrpNetwork(idx, 'wildcard', e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                        placeholder="e.g. 0.0.0.255"
-                      />
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Router ID</label>
+                        <input type="text" value={routingConfig.bgp.routerId || ''} onChange={(e) => updateConfig({ bgp: { ...routingConfig.bgp!, routerId: e.target.value } })} className="w-full px-3 py-2 border rounded-lg text-sm" />
                     </div>
-                    <div className="md:col-span-2 flex justify-end">
-                      <button type="button" onClick={() => removeEigrpNetwork(idx)} className="text-red-600 text-sm">
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {(routingConfig.eigrp.networks || []).length === 0 && (
-                  <p className="text-sm text-slate-500">No EIGRP networks configured.</p>
-                )}
-              </div>
-            </div>
+                </div>
 
-            <div>
-              <h4 className="text-md font-semibold text-slate-900 mb-2">Passive Interfaces</h4>
-              <div className="flex flex-wrap gap-2">
-                {optionsWithCurrent(undefined).map((name) => (
-                  <button
-                    type="button"
-                    key={name}
-                    onClick={() => toggleEigrpPassive(name)}
-                    className={`px-3 py-1 rounded-full text-sm border ${
-                      (routingConfig.eigrp!.passiveInterfaces || []).includes(name)
-                        ? 'bg-blue-50 border-blue-300 text-blue-800'
-                        : 'bg-white border-slate-300 text-slate-700'
-                    }`}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
+                {/* Neighbors */}
+                <div className="border-t pt-4">
+                    <div className="flex justify-between items-center mb-2">
+                        <h4 className="text-sm font-semibold">Neighbors</h4>
+                        <button type="button" onClick={addBgpNeighbor} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Add Neighbor</button>
+                    </div>
+                    {routingConfig.bgp.neighbors.map((n, idx) => (
+                        <div key={idx} className="border rounded p-3 mb-2 bg-slate-50">
+                            <div className="grid grid-cols-2 gap-3 mb-2">
+                                <div>
+                                    <label className="block text-xs text-slate-500">Neighbor IP</label>
+                                    <input type="text" value={n.ip} onChange={(e) => updateBgpNeighbor(idx, 'ip', e.target.value)} className="w-full border rounded px-2 py-1 text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-slate-500">Remote AS</label>
+                                    <input type="number" value={n.remoteAs} onChange={(e) => updateBgpNeighbor(idx, 'remoteAs', Number(e.target.value))} className="w-full border rounded px-2 py-1 text-sm" />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 mb-2">
+                                <div>
+                                    <label className="block text-xs text-slate-500">Update Source</label>
+                                    <input type="text" value={n.updateSource || ''} onChange={(e) => updateBgpNeighbor(idx, 'updateSource', e.target.value)} className="w-full border rounded px-2 py-1 text-sm" placeholder="e.g. Loopback0" />
+                                </div>
+                                <div className="flex flex-col justify-end gap-1">
+                                    <label className="flex items-center gap-2 text-xs">
+                                        <input type="checkbox" checked={n.nextHopSelf} onChange={(e) => updateBgpNeighbor(idx, 'nextHopSelf', e.target.checked)} />
+                                        Next Hop Self
+                                    </label>
+                                    <label className="flex items-center gap-2 text-xs">
+                                        <input type="checkbox" checked={n.activateVpnv4} onChange={(e) => updateBgpNeighbor(idx, 'activateVpnv4', e.target.checked)} />
+                                        Activate VPNv4
+                                    </label>
+                                </div>
+                            </div>
+                            <button type="button" onClick={() => removeBgpNeighbor(idx)} className="text-red-500 text-xs hover:underline">Remove Neighbor</button>
+                        </div>
+                    ))}
+                </div>
             </div>
-          </div>
         )}
       </div>
 
-      {/* VPN (GRE) */}
+      {/* --- GRE Tunnels --- */}
       <div className="bg-white border border-slate-200 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">VPN (GRE Tunnels)</h3>
-            <p className="text-sm text-slate-600">Configure GRE tunnels (common CCNA-style VPN lab).</p>
+            <p className="text-sm text-slate-600">Configure GRE tunnels with optional IPsec protection.</p>
           </div>
-          <button
-            type="button"
-            onClick={addGreTunnel}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-          >
+          <button type="button" onClick={addGreTunnel} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
             Add Tunnel
           </button>
         </div>
 
         <div className="space-y-4">
           {(routingConfig.greTunnels || []).map((t, idx) => (
-            <div key={idx} className="border border-slate-200 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="font-medium text-slate-900">Tunnel {t.tunnelNumber}</h4>
-                <button type="button" onClick={() => removeGreTunnel(idx)} className="text-red-600 text-sm">
-                  Remove
-                </button>
+            <div key={idx} className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+              <div className="grid md:grid-cols-3 gap-4 mb-3">
+                 <div>
+                    <label className="block text-xs font-medium text-slate-700">Tunnel #</label>
+                    <input type="number" value={t.tunnelNumber} onChange={(e) => updateGreTunnel(idx, 'tunnelNumber', Number(e.target.value))} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                 </div>
+                 <div>
+                    <label className="block text-xs font-medium text-slate-700">Source Int</label>
+                    <select value={t.sourceInterface} onChange={(e) => updateGreTunnel(idx, 'sourceInterface', e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm">
+                       <option value="">Select...</option>
+                       {optionsWithCurrent(t.sourceInterface).map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                 </div>
+                 <div>
+                    <label className="block text-xs font-medium text-slate-700">Dest IP</label>
+                    <input type="text" value={t.destinationIp} onChange={(e) => updateGreTunnel(idx, 'destinationIp', e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                 </div>
+              </div>
+              
+              <div className="grid md:grid-cols-2 gap-4 mb-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">Tunnel IP</label>
+                    <input type="text" value={t.tunnelIp} onChange={(e) => updateGreTunnel(idx, 'tunnelIp', e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="172.16.1.1" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">Tunnel Mask</label>
+                    <input type="text" value={t.tunnelMask} onChange={(e) => updateGreTunnel(idx, 'tunnelMask', e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                  </div>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Tunnel Number</label>
-                  <input
-                    type="number"
-                    value={t.tunnelNumber}
-                    onChange={(e) => updateGreTunnel(idx, 'tunnelNumber', Number(e.target.value))}
+              {/* IPsec Selection */}
+              <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-700 mb-1">IPsec Profile (Optional)</label>
+                  <input 
+                    type="text" 
+                    value={t.ipsecProfile || ''} 
+                    onChange={(e) => updateGreTunnel(idx, 'ipsecProfile', e.target.value)} 
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    min={0}
+                    placeholder="Enter crypto profile name (e.g. PROTECT_GRE)"
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Source Interface</label>
-                  <select
-                    value={t.sourceInterface}
-                    onChange={(e) => updateGreTunnel(idx, 'sourceInterface', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                  >
-                    <option value="">Select interface</option>
-                    {optionsWithCurrent(t.sourceInterface).map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Destination IP</label>
-                  <input
-                    type="text"
-                    value={t.destinationIp}
-                    onChange={(e) => updateGreTunnel(idx, 'destinationIp', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="e.g. 198.51.100.2"
-                  />
-                </div>
+                  <p className="text-[10px] text-slate-500 mt-1">Links to a crypto profile defined in the Security tab.</p>
               </div>
 
-              <div className="grid md:grid-cols-4 gap-4 mt-4">
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Tunnel IP</label>
-                  <input
-                    type="text"
-                    value={t.tunnelIp}
-                    onChange={(e) => updateGreTunnel(idx, 'tunnelIp', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="e.g. 10.255.255.1"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Tunnel Mask</label>
-                  <input
-                    type="text"
-                    value={t.tunnelMask}
-                    onChange={(e) => updateGreTunnel(idx, 'tunnelMask', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="255.255.255.252"
-                  />
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-5 gap-4 mt-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">MTU</label>
-                  <input
-                    type="number"
-                    value={t.mtu ?? ''}
-                    onChange={(e) => updateGreTunnel(idx, 'mtu', nOrUndef(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="optional"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Adjust MSS</label>
-                  <input
-                    type="number"
-                    value={t.adjustMss ?? ''}
-                    onChange={(e) => updateGreTunnel(idx, 'adjustMss', nOrUndef(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="optional"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Tunnel Key</label>
-                  <input
-                    type="number"
-                    value={t.tunnelKey ?? ''}
-                    onChange={(e) => updateGreTunnel(idx, 'tunnelKey', nOrUndef(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="optional"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Keepalive (sec)</label>
-                  <input
-                    type="number"
-                    value={t.keepaliveSeconds ?? ''}
-                    onChange={(e) => updateGreTunnel(idx, 'keepaliveSeconds', nOrUndef(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="optional"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Keepalive Retries</label>
-                  <input
-                    type="number"
-                    value={t.keepaliveRetries ?? ''}
-                    onChange={(e) => updateGreTunnel(idx, 'keepaliveRetries', nOrUndef(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                    placeholder="optional"
-                  />
-                </div>
+              <div className="flex justify-end">
+                <button type="button" onClick={() => removeGreTunnel(idx)} className="text-red-600 text-sm hover:underline">Remove Tunnel</button>
               </div>
             </div>
           ))}
-
-          {(routingConfig.greTunnels || []).length === 0 && (
-            <p className="text-sm text-slate-500">No GRE tunnels configured.</p>
-          )}
         </div>
       </div>
+
     </div>
   )
 }

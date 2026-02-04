@@ -3,125 +3,167 @@
 !
 
 {# ------------------------- #}
+{# VRF Definitions           #}
+{# ------------------------- #}
+{% if routing.vrfs %}
+!
+! VRF Configuration
+{% for vrf in routing.vrfs %}
+ip vrf {{ vrf.name }}
+  rd {{ vrf.rd }}
+  {% if vrf.route_target_export %}
+  route-target export {{ vrf.route_target_export }}
+  {% endif %}
+  {% if vrf.route_target_import %}
+  route-target import {{ vrf.route_target_import }}
+  {% endif %}
+exit
+{% endfor %}
+!
+{% endif %}
+
+{# ------------------------- #}
 {# Default + Static Routes   #}
 {# ------------------------- #}
-{% if default_route %}
-! Default route
-{% if default_route.next_hop %}
-ip route 0.0.0.0 0.0.0.0 {{ default_route.next_hop }}{% if default_route.distance %} {{ default_route.distance }}{% endif %}
-{% elif default_route.exit_interface %}
-ip route 0.0.0.0 0.0.0.0 {{ default_route.exit_interface }}{% if default_route.distance %} {{ default_route.distance }}{% endif %}
-{% endif %}
-!
+{% if routing.default_route %}
+ip route 0.0.0.0 0.0.0.0 {{ routing.default_route.next_hop }} {% if routing.default_route.distance %}{{ routing.default_route.distance }}{% endif %}
 {% endif %}
 
-{% if static_routes and static_routes|length > 0 %}
-! Static routes
-{% for r in static_routes %}
-{% if r.exit_interface and r.next_hop %}
-ip route {{ r.destination }} {{ r.subnet_mask }} {{ r.exit_interface }} {{ r.next_hop }}{% if r.distance %} {{ r.distance }}{% endif %}{% if r.name %} name {{ r.name }}{% endif %}
-{% elif r.next_hop %}
-ip route {{ r.destination }} {{ r.subnet_mask }} {{ r.next_hop }}{% if r.distance %} {{ r.distance }}{% endif %}{% if r.name %} name {{ r.name }}{% endif %}
-{% elif r.exit_interface %}
-ip route {{ r.destination }} {{ r.subnet_mask }} {{ r.exit_interface }}{% if r.distance %} {{ r.distance }}{% endif %}{% if r.name %} name {{ r.name }}{% endif %}
-{% endif %}
-{% endfor %}
-!
-{% endif %}
-
-
-{# ------------------------- #}
-{# OSPF                      #}
-{# ------------------------- #}
-{% if ospf %}
-router ospf {{ ospf.process_id }}
-{% if ospf.router_id %}
- router-id {{ ospf.router_id }}
-{% endif %}
-
-{% for network in ospf.networks %}
- network {{ network.network }} {{ network.wildcard }} area {{ network.area }}
+{% for route in routing.static_routes %}
+ip route {% if route.vrf %}vrf {{ route.vrf }} {% endif %}{{ route.destination }} {{ route.subnet_mask }} {% if route.next_hop %}{{ route.next_hop }}{% endif %}{% if route.exit_interface %}{{ route.exit_interface }}{% endif %} {% if route.distance %}{{ route.distance }}{% endif %}
 {% endfor %}
 
-{% for passive in ospf.passive_interfaces %}
+{# ------------------------- #}
+{# OSPF Configuration        #}
+{# ------------------------- #}
+{% if routing.ospf and routing.ospf.process_id %}
+!
+router ospf {{ routing.ospf.process_id }}{% if routing.ospf.vrf %} vrf {{ routing.ospf.vrf }}{% endif %}
+ {% if routing.ospf.router_id %}
+ router-id {{ routing.ospf.router_id }}
+ {% endif %}
+ {% if routing.ospf.default_originate %}
+ default-information originate always
+ {% endif %}
+ {% for net in routing.ospf.networks %}
+ network {{ net.network }} {{ net.wildcard }} area {{ net.area }}
+ {% endfor %}
+ {% for intf in routing.ospf.interfaces %}
+  {% if intf.cost %}
+ interface {{ intf.interface }}
+  ip ospf cost {{ intf.cost }}
+  {% endif %}
+  {% if intf.priority %}
+ interface {{ intf.interface }}
+  ip ospf priority {{ intf.priority }}
+  {% endif %}
+ {% endfor %}
+ {% for passive in routing.ospf.passive_interfaces %}
  passive-interface {{ passive }}
-{% endfor %}
-
-{% if ospf.default_originate %}
- default-information originate
-{% endif %}
+ {% endfor %}
+exit
 !
-
-{% for iface in ospf.interfaces %}
-interface {{ iface.interface }}
- ip ospf {{ ospf.process_id }} area {{ iface.area }}
-{% if iface.cost %}
- ip ospf cost {{ iface.cost }}
 {% endif %}
-{% if iface.priority is not none %}
- ip ospf priority {{ iface.priority }}
-{% endif %}
-!
-{% endfor %}
-{% endif %}
-
 
 {# ------------------------- #}
-{# EIGRP (optional)          #}
+{# EIGRP Configuration       #}
 {# ------------------------- #}
-{% if eigrp and eigrp.enabled %}
-router eigrp {{ eigrp.asn }}
-{% if eigrp.router_id %}
- eigrp router-id {{ eigrp.router_id }}
-{% endif %}
-{% if eigrp.no_auto_summary %}
+{% if routing.eigrp and routing.eigrp.enabled %}
+!
+router eigrp {{ routing.eigrp.asn }}
+ {% if routing.eigrp.router_id %}
+ eigrp router-id {{ routing.eigrp.router_id }}
+ {% endif %}
+ {% if routing.eigrp.no_auto_summary %}
  no auto-summary
-{% endif %}
-
-{% for net in eigrp.networks %}
-{% if net.wildcard %}
- network {{ net.network }} {{ net.wildcard }}
-{% else %}
- network {{ net.network }}
-{% endif %}
-{% endfor %}
-
-{% for passive in eigrp.passive_interfaces %}
+ {% endif %}
+ {% for net in routing.eigrp.networks %}
+ network {{ net.network }} {% if net.wildcard %}{{ net.wildcard }}{% endif %}
+ {% endfor %}
+ {% for passive in routing.eigrp.passive_interfaces %}
  passive-interface {{ passive }}
-{% endfor %}
+ {% endfor %}
+exit
 !
 {% endif %}
 
+{# ------------------------- #}
+{# BGP Configuration         #}
+{# ------------------------- #}
+{% if routing.bgp %}
+!
+router bgp {{ routing.bgp.asn }}
+ {% if routing.bgp.router_id %}
+ bgp router-id {{ routing.bgp.router_id }}
+ {% endif %}
+ bgp log-neighbor-changes
+ !
+ {# Global Neighbors #}
+ {% for neighbor in routing.bgp.neighbors %}
+ neighbor {{ neighbor.ip }} remote-as {{ neighbor.remote_as }}
+  {% if neighbor.update_source %}
+ neighbor {{ neighbor.ip }} update-source {{ neighbor.update_source }}
+  {% endif %}
+  {% if neighbor.next_hop_self %}
+ neighbor {{ neighbor.ip }} next-hop-self
+  {% endif %}
+ {% endfor %}
+ !
+ {# Address Family IPv4 (Global) #}
+ address-family ipv4
+  {% for net in routing.bgp.networks %}
+  network {{ net }}
+  {% endfor %}
+  {% for neighbor in routing.bgp.neighbors %}
+   {% if not neighbor.activate_vpnv4 %}
+  neighbor {{ neighbor.ip }} activate
+   {% endif %}
+  {% endfor %}
+ exit-address-family
+ !
+ {# Address Family VPNv4 (MPLS) #}
+ address-family vpnv4
+  {% for neighbor in routing.bgp.neighbors %}
+   {% if neighbor.activate_vpnv4 %}
+  neighbor {{ neighbor.ip }} activate
+  neighbor {{ neighbor.ip }} send-community extended
+   {% endif %}
+  {% endfor %}
+ exit-address-family
+ !
+ {# Address Family for VRFs (VRF Lite / L3VPN) #}
+ {% for vrf in routing.vrfs %}
+ address-family ipv4 vrf {{ vrf.name }}
+  redistribute connected
+  {% if routing.ospf and routing.ospf.vrf == vrf.name %}
+  redistribute ospf {{ routing.ospf.process_id }} vrf {{ vrf.name }}
+  {% endif %}
+ exit-address-family
+ {% endfor %}
+exit
+!
+{% endif %}
 
 {# ------------------------- #}
 {# GRE Tunnels               #}
 {# ------------------------- #}
-{% if gre_tunnels and gre_tunnels|length > 0 %}
-{% for tunnel in gre_tunnels %}
+{% for tunnel in routing.gre_tunnels %}
+!
 interface Tunnel{{ tunnel.tunnel_number }}
  ip address {{ tunnel.tunnel_ip }} {{ tunnel.tunnel_mask }}
-
-{% if tunnel.mtu %}
- ip mtu {{ tunnel.mtu }}
-{% endif %}
-{% if tunnel.adjust_mss %}
- ip tcp adjust-mss {{ tunnel.adjust_mss }}
-{% endif %}
-
  tunnel source {{ tunnel.source_interface }}
  tunnel destination {{ tunnel.destination_ip }}
- tunnel mode gre ip
-
-{% if tunnel.tunnel_key is not none %}
+ {% if tunnel.tunnel_key %}
  tunnel key {{ tunnel.tunnel_key }}
-{% endif %}
-{% if tunnel.keepalive_seconds %}
-{% if tunnel.keepalive_retries %}
- keepalive {{ tunnel.keepalive_seconds }} {{ tunnel.keepalive_retries }}
-{% else %}
- keepalive {{ tunnel.keepalive_seconds }}
-{% endif %}
-{% endif %}
-!
+ {% endif %}
+ {% if tunnel.mtu %}
+ ip mtu {{ tunnel.mtu }}
+ {% endif %}
+ {% if tunnel.adjust_mss %}
+ ip tcp adjust-mss {{ tunnel.adjust_mss }}
+ {% endif %}
+ {% if tunnel.ipsec_profile %}
+ tunnel protection ipsec profile {{ tunnel.ipsec_profile }}
+ {% endif %}
+exit
 {% endfor %}
-{% endif %}

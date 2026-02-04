@@ -12,6 +12,7 @@ interface Props {
   switchType?: SwitchType
   config?: any
   onUpdate: (config: any) => void
+  context?: 'router' | 'nat' // New prop received from device-configurator
 }
 
 function normalizeConfig(input: any) {
@@ -25,7 +26,7 @@ function normalizeConfig(input: any) {
   )
 }
 
-export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, switchType, config, onUpdate }: Props) {
+export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, switchType, config, onUpdate, context = 'router' }: Props) {
   const initial = useMemo(() => normalizeConfig(config), [config])
   const [localConfig, setLocalConfig] = useState(initial)
 
@@ -65,6 +66,8 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
     setLocalConfig(next)
     onUpdate(next)
   }
+
+  // --- HSRP/DHCP Handlers (Router Context) ---
 
   const addHsrp = () => {
     const next = {
@@ -123,24 +126,26 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
     push({ ...localConfig, dhcpPools: updated })
   }
 
-  // ---------------- NAT ----------------
-  const toggleNat = (enabled: boolean) => {
-    if (!enabled) {
-      push({ ...localConfig, nat: null })
-      return
-    }
-    push({
-      ...localConfig,
-      nat: {
-        insideInterfaces: [],
-        outsideInterfaces: [],
-        staticEntries: [],
-        pools: [],
-        patInterface: '',
-        patAcl: '',
-      },
-    })
-  }
+  // --- NAT Handlers (NAT Context) ---
+  
+  // Ensure NAT object exists if we are in NAT context
+  useEffect(() => {
+      if (context === 'nat' && !localConfig.nat) {
+          push({
+            ...localConfig,
+            nat: {
+                insideInterfaces: [],
+                outsideInterfaces: [],
+                staticEntries: [],
+                pools: [],
+                patInterface: '',
+                patAcl: '',
+            }
+          })
+      }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [context])
+
 
   const updateNat = (patch: any) => {
     push({ ...localConfig, nat: { ...(localConfig.nat || {}), ...patch } })
@@ -199,457 +204,314 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
     updateNat({ pools: arr })
   }
 
+  // ==============================================================================
+  // RENDER: Router Context (HSRP & DHCP)
+  // ==============================================================================
+  if (context === 'router') {
+    return (
+        <div className="space-y-8">
+            {/* Info / Guard */}
+            {isL2Switch && (
+                <div className="p-4 rounded-lg border border-amber-200 bg-amber-50">
+                <div className="font-semibold text-amber-800">ℹ️ L2 Switch</div>
+                <div className="text-sm text-amber-700 mt-1">
+                    Services like <strong>HSRP</strong> and <strong>DHCP</strong> are Layer-3 features. Select an{' '}
+                    <strong>MSW</strong> (multilayer switch) or a <strong>router</strong> to configure them.
+                </div>
+                </div>
+            )}
+
+            {/* HSRP */}
+            <div className={canDoL3Services ? '' : 'opacity-60'}>
+                <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-slate-800">HSRP (Hot Standby Router Protocol)</h3>
+                <button
+                    onClick={addHsrp}
+                    disabled={!canDoL3Services}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    + Add HSRP Group
+                </button>
+                </div>
+
+                {(localConfig.hsrp || []).length === 0 ? (
+                <div className="text-center py-6 text-slate-500 border-2 border-dashed border-slate-200 rounded-lg">
+                    No HSRP configured
+                </div>
+                ) : (
+                <div className="space-y-4">
+                    {(localConfig.hsrp || []).map((hsrp: any, index: number) => (
+                    <div key={index} className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">Interface</label>
+                            <select
+                            value={hsrp.interface}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateHsrp(index, { interface: e.target.value })}
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            >
+                            {getInterfaceOptions(hsrp.interface).map((i) => (
+                                <option key={i} value={i}>
+                                {i}
+                                </option>
+                            ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">Group</label>
+                            <input
+                            type="number"
+                            value={hsrp.group}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateHsrp(index, { group: parseInt(e.target.value || '1', 10) })}
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">Virtual IP</label>
+                            <input
+                            type="text"
+                            value={hsrp.virtualIp}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateHsrp(index, { virtualIp: e.target.value })}
+                            placeholder="192.168.1.1"
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">Priority</label>
+                            <input
+                            type="number"
+                            value={hsrp.priority}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateHsrp(index, { priority: parseInt(e.target.value || '100', 10) })}
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between">
+                        <label className="flex items-center gap-2 text-sm">
+                            <input
+                            type="checkbox"
+                            checked={!!hsrp.preempt}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateHsrp(index, { preempt: e.target.checked })}
+                            className="rounded disabled:cursor-not-allowed"
+                            />
+                            Preempt
+                        </label>
+
+                        <button
+                            onClick={() => removeHsrp(index)}
+                            disabled={!canDoL3Services}
+                            className="text-red-600 hover:bg-red-100 px-2 py-1 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Remove
+                        </button>
+                        </div>
+                    </div>
+                    ))}
+                </div>
+                )}
+            </div>
+
+            {/* DHCP Pools */}
+            <div className={canDoL3Services ? '' : 'opacity-60'}>
+                <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-slate-800">DHCP Pools</h3>
+                <button
+                    onClick={addDhcpPool}
+                    disabled={!canDoL3Services}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    + Add DHCP Pool
+                </button>
+                </div>
+
+                {(localConfig.dhcpPools || []).length === 0 ? (
+                <div className="text-center py-6 text-slate-500 border-2 border-dashed border-slate-200 rounded-lg">
+                    No DHCP pools configured
+                </div>
+                ) : (
+                <div className="space-y-4">
+                    {(localConfig.dhcpPools || []).map((pool: any, index: number) => (
+                    <div key={index} className="p-4 bg-green-50 rounded-lg border border-green-200">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">Pool Name</label>
+                            <input
+                            type="text"
+                            value={pool.name}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateDhcpPool(index, { name: e.target.value })}
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">Network</label>
+                            <input
+                            type="text"
+                            value={pool.network}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateDhcpPool(index, { network: e.target.value })}
+                            placeholder="192.168.1.0"
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">Default Gateway</label>
+                            <input
+                            type="text"
+                            value={pool.defaultGateway || ''}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateDhcpPool(index, { defaultGateway: e.target.value })}
+                            placeholder="192.168.1.1"
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+                        </div>
+
+                        <button
+                        onClick={() => removeDhcpPool(index)}
+                        disabled={!canDoL3Services}
+                        className="mt-3 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                        Remove Pool
+                        </button>
+                    </div>
+                    ))}
+                </div>
+                )}
+            </div>
+        </div>
+    )
+  }
+
+  // ==============================================================================
+  // RENDER: NAT Context (NAT Only)
+  // ==============================================================================
   return (
     <div className="space-y-8">
-      {/* Info / Guard */}
-      {isL2Switch && (
-        <div className="p-4 rounded-lg border border-amber-200 bg-amber-50">
-          <div className="font-semibold text-amber-800">ℹ️ L2 Switch</div>
-          <div className="text-sm text-amber-700 mt-1">
-            Services like <strong>HSRP</strong> and <strong>DHCP</strong> are Layer-3 features. Select an{' '}
-            <strong>MSW</strong> (multilayer switch) or a <strong>router</strong> to configure them.
-          </div>
-        </div>
-      )}
+        <div>
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-slate-800">NAT Configuration</h3>
+                <p className="text-sm text-slate-500">Configure Network Address Translation for this Gateway/Cloud device.</p>
+            </div>
 
-      {/* HSRP */}
-      <div className={canDoL3Services ? '' : 'opacity-60'}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-800">HSRP (Hot Standby Router Protocol)</h3>
-          <button
-            onClick={addHsrp}
-            disabled={!canDoL3Services}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            + Add HSRP Group
-          </button>
-        </div>
-
-        {(localConfig.hsrp || []).length === 0 ? (
-          <div className="text-center py-6 text-slate-500 border-2 border-dashed border-slate-200 rounded-lg">
-            No HSRP configured
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {(localConfig.hsrp || []).map((hsrp: any, index: number) => (
-              <div key={index} className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Interface</label>
-                    <select
-                      value={hsrp.interface}
-                      disabled={!canDoL3Services}
-                      onChange={(e) => updateHsrp(index, { interface: e.target.value })}
-                      className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                    >
-                      {getInterfaceOptions(hsrp.interface).map((i) => (
-                        <option key={i} value={i}>
-                          {i}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Group</label>
-                    <input
-                      type="number"
-                      value={hsrp.group}
-                      disabled={!canDoL3Services}
-                      onChange={(e) => updateHsrp(index, { group: parseInt(e.target.value || '1', 10) })}
-                      className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Virtual IP</label>
-                    <input
-                      type="text"
-                      value={hsrp.virtualIp}
-                      disabled={!canDoL3Services}
-                      onChange={(e) => updateHsrp(index, { virtualIp: e.target.value })}
-                      placeholder="192.168.1.1"
-                      className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Priority</label>
-                    <input
-                      type="number"
-                      value={hsrp.priority}
-                      disabled={!canDoL3Services}
-                      onChange={(e) => updateHsrp(index, { priority: parseInt(e.target.value || '100', 10) })}
-                      className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-3 flex items-center justify-between">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={!!hsrp.preempt}
-                      disabled={!canDoL3Services}
-                      onChange={(e) => updateHsrp(index, { preempt: e.target.checked })}
-                      className="rounded disabled:cursor-not-allowed"
-                    />
-                    Preempt
-                  </label>
-
-                  <button
-                    onClick={() => removeHsrp(index)}
-                    disabled={!canDoL3Services}
-                    className="text-red-600 hover:bg-red-100 px-2 py-1 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* DHCP Pools */}
-      <div className={canDoL3Services ? '' : 'opacity-60'}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-800">DHCP Pools</h3>
-          <button
-            onClick={addDhcpPool}
-            disabled={!canDoL3Services}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            + Add DHCP Pool
-          </button>
-        </div>
-
-        {(localConfig.dhcpPools || []).length === 0 ? (
-          <div className="text-center py-6 text-slate-500 border-2 border-dashed border-slate-200 rounded-lg">
-            No DHCP pools configured
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {(localConfig.dhcpPools || []).map((pool: any, index: number) => (
-              <div key={index} className="p-4 bg-green-50 rounded-lg border border-green-200">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Pool Name</label>
-                    <input
-                      type="text"
-                      value={pool.name}
-                      disabled={!canDoL3Services}
-                      onChange={(e) => updateDhcpPool(index, { name: e.target.value })}
-                      className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Network</label>
-                    <input
-                      type="text"
-                      value={pool.network}
-                      disabled={!canDoL3Services}
-                      onChange={(e) => updateDhcpPool(index, { network: e.target.value })}
-                      placeholder="192.168.1.0"
-                      className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Default Gateway</label>
-                    <input
-                      type="text"
-                      value={pool.defaultGateway || ''}
-                      disabled={!canDoL3Services}
-                      onChange={(e) => updateDhcpPool(index, { defaultGateway: e.target.value })}
-                      placeholder="192.168.1.1"
-                      className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => removeDhcpPool(index)}
-                  disabled={!canDoL3Services}
-                  className="mt-3 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Remove Pool
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* NAT (router edge feature) */}
-      {deviceType === 'router' && (
-      <div className={canDoL3Services ? '' : 'opacity-60'}>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-slate-800">NAT</h3>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              disabled={!canDoL3Services}
-              checked={!!localConfig.nat}
-              onChange={(e) => toggleNat(e.target.checked)}
-              className="rounded disabled:cursor-not-allowed"
-            />
-            Enable NAT
-          </label>
-        </div>
-
-        {!localConfig.nat ? (
-          <div className="text-center py-6 text-slate-500 border-2 border-dashed border-slate-200 rounded-lg">
-            NAT is disabled
-          </div>
-        ) : (
-          <div className="space-y-4">
             {/* Inside / Outside Interfaces */}
-            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-semibold text-slate-800">Inside Interfaces</label>
-                    <button
-                      onClick={() => addNatInterface('inside')}
-                      disabled={!canDoL3Services}
-                      className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      + Add
-                    </button>
-                  </div>
-                  {(localConfig.nat.insideInterfaces || []).length === 0 ? (
-                    <div className="text-sm text-slate-500">None</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {(localConfig.nat.insideInterfaces || []).map((iface: string, idx: number) => (
-                        <div key={`in-${idx}`} className="flex gap-2 items-center">
-                          <select
-                            value={iface}
-                            disabled={!canDoL3Services}
-                            onChange={(e) => updateNatInterface('inside', idx, e.target.value)}
-                            className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                          >
-                            {getInterfaceOptions(iface).map((o) => (
-                              <option key={o} value={o}>
-                                {o}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            onClick={() => removeNatInterface('inside', idx)}
-                            disabled={!canDoL3Services}
-                            className="text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs disabled:opacity-50"
-                          >
-                            Remove
-                          </button>
+            <div className="space-y-4">
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Inside Interfaces */}
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <label className="text-sm font-semibold text-slate-800">Inside Interfaces</label>
+                                <button onClick={() => addNatInterface('inside')} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">+ Add Interface</button>
+                            </div>
+                            <div className="space-y-2">
+                                {(localConfig.nat?.insideInterfaces || []).map((iface: string, idx: number) => (
+                                    <div key={`in-${idx}`} className="flex gap-2">
+                                        <input 
+                                            type="text" 
+                                            value={iface} 
+                                            onChange={(e) => updateNatInterface('inside', idx, e.target.value)}
+                                            placeholder="e.g. GigabitEthernet0/1"
+                                            className="flex-1 px-3 py-2 border rounded text-sm"
+                                        />
+                                        <button onClick={() => removeNatInterface('inside', idx)} className="text-red-500 hover:bg-red-50 px-2 rounded">×</button>
+                                    </div>
+                                ))}
+                                {(localConfig.nat?.insideInterfaces || []).length === 0 && <p className="text-xs text-slate-400 italic">No inside interfaces defined.</p>}
+                            </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-semibold text-slate-800">Outside Interfaces</label>
-                    <button
-                      onClick={() => addNatInterface('outside')}
-                      disabled={!canDoL3Services}
-                      className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      + Add
-                    </button>
-                  </div>
-                  {(localConfig.nat.outsideInterfaces || []).length === 0 ? (
-                    <div className="text-sm text-slate-500">None</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {(localConfig.nat.outsideInterfaces || []).map((iface: string, idx: number) => (
-                        <div key={`out-${idx}`} className="flex gap-2 items-center">
-                          <select
-                            value={iface}
-                            disabled={!canDoL3Services}
-                            onChange={(e) => updateNatInterface('outside', idx, e.target.value)}
-                            className="flex-1 px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                          >
-                            {getInterfaceOptions(iface).map((o) => (
-                              <option key={o} value={o}>
-                                {o}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            onClick={() => removeNatInterface('outside', idx)}
-                            disabled={!canDoL3Services}
-                            className="text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs disabled:opacity-50"
-                          >
-                            Remove
-                          </button>
+                        {/* Outside Interfaces */}
+                        <div>
+                            <div className="flex items-center justify-between mb-2">
+                                <label className="text-sm font-semibold text-slate-800">Outside Interfaces</label>
+                                <button onClick={() => addNatInterface('outside')} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">+ Add Interface</button>
+                            </div>
+                            <div className="space-y-2">
+                                {(localConfig.nat?.outsideInterfaces || []).map((iface: string, idx: number) => (
+                                    <div key={`out-${idx}`} className="flex gap-2">
+                                        <input 
+                                            type="text" 
+                                            value={iface} 
+                                            onChange={(e) => updateNatInterface('outside', idx, e.target.value)}
+                                            placeholder="e.g. GigabitEthernet0/0"
+                                            className="flex-1 px-3 py-2 border rounded text-sm"
+                                        />
+                                        <button onClick={() => removeNatInterface('outside', idx)} className="text-red-500 hover:bg-red-50 px-2 rounded">×</button>
+                                    </div>
+                                ))}
+                                {(localConfig.nat?.outsideInterfaces || []).length === 0 && <p className="text-xs text-slate-400 italic">No outside interfaces defined.</p>}
+                            </div>
                         </div>
-                      ))}
                     </div>
-                  )}
                 </div>
-              </div>
-            </div>
 
-            {/* Static NAT */}
-            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-semibold text-slate-800">Static NAT Entries</label>
-                <button
-                  onClick={addNatStatic}
-                  disabled={!canDoL3Services}
-                  className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
-                >
-                  + Add
-                </button>
-              </div>
-              {(localConfig.nat.staticEntries || []).length === 0 ? (
-                <div className="text-sm text-slate-500">None</div>
-              ) : (
-                <div className="space-y-2">
-                  {(localConfig.nat.staticEntries || []).map((st: any, idx: number) => (
-                    <div key={`st-${idx}`} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center">
-                      <input
-                        type="text"
-                        value={st.insideLocal || ''}
-                        disabled={!canDoL3Services}
-                        onChange={(e) => updateNatStatic(idx, { insideLocal: e.target.value })}
-                        placeholder="inside local (e.g., 192.168.10.10)"
-                        className="px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                      />
-                      <input
-                        type="text"
-                        value={st.insideGlobal || ''}
-                        disabled={!canDoL3Services}
-                        onChange={(e) => updateNatStatic(idx, { insideGlobal: e.target.value })}
-                        placeholder="inside global (e.g., 203.0.113.10)"
-                        className="px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                      />
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => removeNatStatic(idx)}
-                          disabled={!canDoL3Services}
-                          className="text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs disabled:opacity-50"
-                        >
-                          Remove
-                        </button>
-                      </div>
+                {/* Static NAT */}
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-semibold text-slate-800">Static NAT Entries</label>
+                        <button onClick={addNatStatic} className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700">+ Add Static Entry</button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* NAT Pools */}
-            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-semibold text-slate-800">NAT Pools</label>
-                <button
-                  onClick={addNatPool}
-                  disabled={!canDoL3Services}
-                  className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50"
-                >
-                  + Add
-                </button>
-              </div>
-              {(localConfig.nat.pools || []).length === 0 ? (
-                <div className="text-sm text-slate-500">None</div>
-              ) : (
-                <div className="space-y-3">
-                  {(localConfig.nat.pools || []).map((pool: any, idx: number) => (
-                    <div key={`pool-${idx}`} className="p-3 border border-slate-200 rounded bg-white">
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-                        <input
-                          type="text"
-                          value={pool.name || ''}
-                          disabled={!canDoL3Services}
-                          onChange={(e) => updateNatPool(idx, { name: e.target.value })}
-                          placeholder="POOL_NAME"
-                          className="px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                        />
-                        <input
-                          type="text"
-                          value={pool.startIp || ''}
-                          disabled={!canDoL3Services}
-                          onChange={(e) => updateNatPool(idx, { startIp: e.target.value })}
-                          placeholder="start IP"
-                          className="px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                        />
-                        <input
-                          type="text"
-                          value={pool.endIp || ''}
-                          disabled={!canDoL3Services}
-                          onChange={(e) => updateNatPool(idx, { endIp: e.target.value })}
-                          placeholder="end IP"
-                          className="px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                        />
-                        <input
-                          type="text"
-                          value={pool.netmask || ''}
-                          disabled={!canDoL3Services}
-                          onChange={(e) => updateNatPool(idx, { netmask: e.target.value })}
-                          placeholder="netmask (e.g., 255.255.255.0)"
-                          className="px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                        />
-                      </div>
-                      <div className="mt-2 flex justify-end">
-                        <button
-                          onClick={() => removeNatPool(idx)}
-                          disabled={!canDoL3Services}
-                          className="text-red-600 hover:bg-red-100 px-2 py-1 rounded text-xs disabled:opacity-50"
-                        >
-                          Remove pool
-                        </button>
-                      </div>
+                    <div className="space-y-2">
+                        {(localConfig.nat?.staticEntries || []).map((st: any, idx: number) => (
+                            <div key={`st-${idx}`} className="grid grid-cols-1 md:grid-cols-7 gap-2 items-center bg-white p-2 rounded border border-slate-200">
+                                <div className="md:col-span-3">
+                                    <label className="block text-[10px] text-slate-500">Inside Local IP</label>
+                                    <input type="text" value={st.insideLocal} onChange={(e) => updateNatStatic(idx, { insideLocal: e.target.value })} className="w-full px-2 py-1 border rounded text-sm" placeholder="192.168.10.5" />
+                                </div>
+                                <div className="md:col-span-1 text-center text-slate-400">➔</div>
+                                <div className="md:col-span-3">
+                                    <label className="block text-[10px] text-slate-500">Inside Global IP</label>
+                                    <input type="text" value={st.insideGlobal} onChange={(e) => updateNatStatic(idx, { insideGlobal: e.target.value })} className="w-full px-2 py-1 border rounded text-sm" placeholder="203.0.113.5" />
+                                </div>
+                                <button onClick={() => removeNatStatic(idx)} className="text-red-500 hover:text-red-700 ml-2">Remove</button>
+                            </div>
+                        ))}
+                         {(localConfig.nat?.staticEntries || []).length === 0 && <p className="text-xs text-slate-400 italic">No static NAT entries.</p>}
                     </div>
-                  ))}
                 </div>
-              )}
-            </div>
 
-            {/* PAT */}
-            <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
-              <label className="text-sm font-semibold text-slate-800">PAT (Overload)</label>
-              <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">PAT Interface</label>
-                  <select
-                    value={localConfig.nat.patInterface || ''}
-                    disabled={!canDoL3Services}
-                    onChange={(e) => updateNatPat({ patInterface: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                  >
-                            {getInterfaceOptions(localConfig.nat.patInterface || '').map((o) => (
-                              <option key={o} value={o}>
-                                {o}
-                              </option>
-                            ))}
-                  </select>
+                {/* PAT / Overload */}
+                <div className="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                    <h4 className="text-sm font-semibold text-slate-800 mb-3">PAT (Overload) Configuration</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-medium text-slate-700 mb-1">Overload Interface</label>
+                            <input 
+                                type="text" 
+                                value={localConfig.nat?.patInterface || ''} 
+                                onChange={(e) => updateNat({ patInterface: e.target.value })} 
+                                placeholder="e.g. GigabitEthernet0/0"
+                                className="w-full px-3 py-2 border rounded text-sm" 
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1">Interface connected to the ISP.</p>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-medium text-slate-700 mb-1">Match ACL</label>
+                            <input 
+                                type="text" 
+                                value={localConfig.nat?.patAcl || ''} 
+                                onChange={(e) => updateNat({ patAcl: e.target.value })} 
+                                placeholder="e.g. NAT_ACL"
+                                className="w-full px-3 py-2 border rounded text-sm" 
+                            />
+                            <p className="text-[10px] text-slate-500 mt-1">ACL defining traffic allowed to be translated.</p>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">PAT ACL (standard/extended name or number)</label>
-                  <input
-                    type="text"
-                    value={localConfig.nat.patAcl || ''}
-                    disabled={!canDoL3Services}
-                    onChange={(e) => updateNatPat({ patAcl: e.target.value })}
-                    placeholder="ACL name/number"
-                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
-                  />
-                </div>
-              </div>
-              <div className="mt-2 text-xs text-slate-500">
-                Tip: For overload NAT you typically need <code>insideInterfaces</code>, <code>outsideInterfaces</code>,
-                a PAT interface, and an ACL.
-              </div>
             </div>
-          </div>
-        )}
-      </div>
-      )}
+        </div>
     </div>
   )
 }

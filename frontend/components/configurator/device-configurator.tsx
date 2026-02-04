@@ -40,7 +40,6 @@ const TABS = [
   { id: 'preview', label: 'Preview & Apply', icon: '📋' },
 ]
 
-
 // ---------- Defaults (so options appear even if user doesn't open a tab) ----------
 function defaultSecurity() {
   return {
@@ -64,6 +63,10 @@ function defaultSecurity() {
     standardAcls: [],
     extendedAcls: [],
     aclApplications: [],
+    // Initialize empty IPsec lists
+    ipsecPhase1: [],
+    ipsecPhase2: [],
+    ipsecMaps: [],
   };
 }
 
@@ -83,11 +86,20 @@ function defaultRouting() {
     ospf: null,
     eigrp: null,
     greTunnels: [],
+    vrfs: [], // Initialize empty VRF list
+    bgp: null,
   };
 }
 
 export function DeviceConfigurator({ device }: { device: Device }) {
   const [activeTab, setActiveTab] = useState('addressing')
+
+  // Identify device capabilities
+  const isSwitch = device.deviceType === 'switch'
+  const isRouter = device.deviceType === 'router'
+  // Treat 'nat' or 'cloud' as a dedicated NAT device
+  const isNatDevice = device.deviceType === 'nat' || device.deviceType === 'cloud'
+
   const makeInitialConfig = (): IntendedConfig => {
     // Initialize with sane defaults so "SSH / NAT / VPN" options are always available in the UI.
     const base: IntendedConfig = {
@@ -95,7 +107,7 @@ export function DeviceConfigurator({ device }: { device: Device }) {
       security: defaultSecurity(),
     }
 
-    if (device.deviceType === 'switch') {
+    if (isSwitch) {
       return {
         ...base,
         // Default: switches are L2 unless user toggles MSW
@@ -103,7 +115,7 @@ export function DeviceConfigurator({ device }: { device: Device }) {
       }
     }
 
-    // Routers: include routing/services defaults (NAT + VPN live here)
+    // Routers and NAT devices: include routing/services defaults
     return {
       ...base,
       routing: defaultRouting(),
@@ -117,42 +129,39 @@ export function DeviceConfigurator({ device }: { device: Device }) {
   const [error, setError] = useState<string | null>(null)
 
   // When switching between devices, reset the configurator state.
-  // Otherwise, ports can appear "unavailable" due to the previous device's switching config.
   useEffect(() => {
     setActiveTab('addressing')
     setGeneratedConfig(null)
     setError(null)
     setConfig(makeInitialConfig())
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device.nodeId])
 
-  const isSwitch = device.deviceType === 'switch'
-  const isRouter = device.deviceType === 'router'
   const isMsw = isSwitch && config.switchType === 'msw'
 
   // Ensure optional sections exist when the user switches device capabilities.
-  // Example: switching an L2 switch to MSW should immediately unlock Routing/Services options.
   useEffect(() => {
     setConfig((prev) => {
       let changed = false
       const next: IntendedConfig = { ...prev }
 
       if (!next.security) {
-        // Always keep device access / SSH settings available
-        // (even if the user doesn't configure ACLs)
-        // @ts-expect-error - lightweight typing, validated on backend
+        // @ts-expect-error - lightweight typing
         next.security = defaultSecurity()
         changed = true
       }
 
-      const needsL3 = device.deviceType !== 'switch' || prev.switchType === 'msw'
+      // If it's a Router, MSW, or NAT device, ensure L3 sections exist
+      const needsL3 = !isSwitch || (isSwitch && prev.switchType === 'msw')
+      
       if (needsL3) {
         if (!next.routing) {
-          // @ts-expect-error - lightweight typing, validated on backend
+          // @ts-expect-error - lightweight typing
           next.routing = defaultRouting()
           changed = true
         }
         if (!next.services) {
-          // @ts-expect-error - lightweight typing, validated on backend
+          // @ts-expect-error - lightweight typing
           next.services = defaultServices()
           changed = true
         }
@@ -160,12 +169,9 @@ export function DeviceConfigurator({ device }: { device: Device }) {
 
       return changed ? next : prev
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [device.deviceType, config.switchType])
+  }, [isSwitch, config.switchType])
 
   // Ports consumed by L2 switching config (access/trunk/EtherChannel members).
-  // Used to filter port pickers in Addressing/Routing/Services so we don't accidentally
-  // configure the same physical port for both L2 and L3.
   const usedSwitchPorts = useMemo(() => {
     const s = (config as any).switching
     return Array.from(getUsedSwitchPorts(s))
@@ -202,25 +208,35 @@ export function DeviceConfigurator({ device }: { device: Device }) {
   }
 
   const filteredTabs = TABS.filter((tab) => {
+    // --- 1. NAT Device Logic ---
+    if (isNatDevice) {
+        // NAT devices only see Addressing, Services (renamed to NAT Config), and Preview
+        return ['addressing', 'services', 'preview'].includes(tab.id)
+    }
+
+    // --- 2. Router Logic ---
     // Hide switching tab for routers
     if (tab.id === 'switching' && isRouter) return false
 
-    // Routing & Services are not applicable on L2 switches
+    // --- 3. Switch Logic ---
+    // Routing & Services are not applicable on L2 switches (only MSW)
     if (isSwitch && !isMsw && (tab.id === 'routing' || tab.id === 'services')) return false
 
     return true
   })
 
   return (
-    <div className="bg-white rounded-lg shadow">
+    <div className="bg-white rounded-lg shadow h-full flex flex-col">
       {/* Header */}
-      <div className="border-b border-slate-200 p-4">
+      <div className="border-b border-slate-200 p-4 flex-none">
         <div className="flex items-center gap-3">
-          <span className="text-3xl">{isRouter ? '🔀' : '🔲'}</span>
+          <span className="text-3xl">
+             {isNatDevice ? '☁️' : isRouter ? '🔀' : '🔲'}
+          </span>
           <div>
             <h2 className="text-xl font-bold text-slate-800">{device.name}</h2>
             <p className="text-sm text-slate-500 capitalize">
-              {isRouter ? 'router' : isMsw ? 'multilayer switch (MSW)' : 'switch (L2)'}
+              {isNatDevice ? 'NAT Gateway / Cloud' : isRouter ? 'Router' : isMsw ? 'Multilayer Switch (MSW)' : 'Switch (L2)'}
             </p>
           </div>
 
@@ -243,7 +259,7 @@ export function DeviceConfigurator({ device }: { device: Device }) {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-slate-200">
+      <div className="border-b border-slate-200 flex-none">
         <div className="flex overflow-x-auto">
           {filteredTabs.map((tab) => (
             <button
@@ -256,14 +272,15 @@ export function DeviceConfigurator({ device }: { device: Device }) {
               }`}
             >
               <span className="mr-2">{tab.icon}</span>
-              {tab.label}
+              {/* Dynamic Label for NAT devices */}
+              {tab.id === 'services' && isNatDevice ? 'NAT Configuration' : tab.label}
             </button>
           ))}
         </div>
       </div>
 
       {/* Content */}
-      <div className="p-6">
+      <div className="p-6 flex-1 overflow-y-auto">
         {error && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
             {error}
@@ -304,6 +321,7 @@ export function DeviceConfigurator({ device }: { device: Device }) {
           <SecurityTab
             config={config.security}
             onUpdate={(data) => updateConfig('security', data)}
+            deviceType={device.deviceType} // <--- Added this to control IPsec visibility
           />
         )}
 
@@ -315,6 +333,9 @@ export function DeviceConfigurator({ device }: { device: Device }) {
             switchType={config.switchType}
             config={config.services}
             onUpdate={(data) => updateConfig('services', data)}
+            // Pass context to control visibility of NAT vs General services
+            // @ts-expect-error - Adding prop dynamically before file is updated
+            context={isNatDevice ? 'nat' : 'router'}
           />
         )}
 

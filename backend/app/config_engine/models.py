@@ -10,12 +10,80 @@ NOTE: Templates in this project are written against snake_case field names.
 
 from __future__ import annotations
 
+from typing import List, Optional, Literal, Union
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
+
+# -----------------------------------------------------------------------------
+# NEW ADVANCED MODELS (VRF, IPSEC, BGP)
+# -----------------------------------------------------------------------------
+
+class VRFConfig(BaseModel):
+    name: str
+    rd: str  # Route Distinguisher (e.g., "100:1")
+    route_target_export: Optional[str] = Field(None, alias="routeTargetExport")
+    route_target_import: Optional[str] = Field(None, alias="routeTargetImport")
+    description: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
+        extra = "ignore"
+
+class BGPNeighbor(BaseModel):
+    ip: str
+    remote_as: int = Field(..., alias="remoteAs")
+    update_source: Optional[str] = Field(None, alias="updateSource")
+    next_hop_self: bool = Field(False, alias="nextHopSelf")
+    activate_vpnv4: bool = Field(False, alias="activateVpnv4") # For MPLS/VPN
+
+    class Config:
+        populate_by_name = True
+        extra = "ignore"
+
+class BGPConfig(BaseModel):
+    asn: int
+    router_id: Optional[str] = Field(None, alias="routerId")
+    neighbors: List[BGPNeighbor] = Field(default_factory=list)
+    networks: List[str] = Field(default_factory=list) # List of advertised networks
+
+    class Config:
+        populate_by_name = True
+        extra = "ignore"
+
+class IPsecPhase1(BaseModel):
+    policy_id: int = Field(10, alias="policyId")
+    encryption: Literal['aes', '3des', 'des'] = 'aes'
+    hash: Literal['sha', 'md5', 'sha256'] = 'sha'
+    authentication: Literal['pre-share', 'rsa-encr'] = 'pre-share'
+    group: int = 2
+    lifetime: int = 86400
+    key: str = "cisco123"
+
+    class Config:
+        populate_by_name = True
+        extra = "ignore"
+
+class IPsecPhase2(BaseModel):
+    name: str = "TRANSFORM_SET"
+    protocol: str = "esp-aes" # e.g. esp-aes esp-sha-hmac
+    mode: Literal['tunnel', 'transport'] = 'tunnel'
+
+    class Config:
+        populate_by_name = True
+        extra = "ignore"
+
+class IPsecMap(BaseModel):
+    name: str
+    priority: int = 10
+    peer_ip: str = Field(..., alias="peerIp")
+    transform_set: str = Field(..., alias="transformSet")
+    match_acl: str = Field(..., alias="matchAcl")
+
+    class Config:
+        populate_by_name = True
+        extra = "ignore"
 
 
 # ============== Addressing Models ==============
-
 
 class ManagementSvi(BaseModel):
     """Switch management SVI (L2/MSW)."""
@@ -41,6 +109,9 @@ class VlanInterfaceAddress(BaseModel):
     subnet_mask: str = Field(..., alias="subnetMask")
     description: Optional[str] = None
     shutdown: bool = False
+    
+    # New features
+    vrf: Optional[str] = None
 
     class Config:
         populate_by_name = True
@@ -55,6 +126,10 @@ class InterfaceAddress(BaseModel):
     subnet_mask: str = Field(..., alias="subnetMask")
     description: Optional[str] = None
     shutdown: bool = False
+    
+    # New features for WAN/VPN
+    vrf: Optional[str] = None 
+    crypto_map: Optional[str] = Field(None, alias="cryptoMap")
 
     class Config:
         populate_by_name = True
@@ -69,6 +144,9 @@ class Subinterface(BaseModel):
     ip_address: str = Field(..., alias="ipAddress")
     subnet_mask: str = Field(..., alias="subnetMask")
     description: Optional[str] = None
+    
+    # New features
+    vrf: Optional[str] = None
 
     class Config:
         populate_by_name = True
@@ -206,6 +284,7 @@ class StaticRoute(BaseModel):
     exit_interface: Optional[str] = Field(None, alias="exitInterface")
     distance: Optional[int] = None
     name: Optional[str] = None
+    vrf: Optional[str] = None # Added support for VRF static routes
 
     class Config:
         populate_by_name = True
@@ -250,6 +329,9 @@ class OspfConfig(BaseModel):
     interfaces: List[OspfInterface] = Field(default_factory=list)
     passive_interfaces: List[str] = Field(default_factory=list, alias="passiveInterfaces")
     default_originate: bool = Field(False, alias="defaultOriginate")
+    
+    # If using VRF-lite OSPF
+    vrf: Optional[str] = None
 
     class Config:
         populate_by_name = True
@@ -290,6 +372,9 @@ class GreTunnel(BaseModel):
     keepalive_retries: Optional[int] = Field(None, alias="keepaliveRetries")
     mtu: Optional[int] = None
     adjust_mss: Optional[int] = Field(None, alias="adjustMss")
+    
+    # New: IPsec protection for this tunnel
+    ipsec_profile: Optional[str] = Field(None, alias="ipsecProfile")
 
     class Config:
         populate_by_name = True
@@ -302,6 +387,10 @@ class RoutingConfig(BaseModel):
     ospf: Optional[OspfConfig] = None
     eigrp: Optional[EigrpConfig] = None
     gre_tunnels: List[GreTunnel] = Field(default_factory=list, alias="greTunnels")
+    
+    # New Advanced Routing
+    bgp: Optional[BGPConfig] = None
+    vrfs: List[VRFConfig] = Field(default_factory=list)
 
     class Config:
         populate_by_name = True
@@ -407,6 +496,11 @@ class SecurityConfig(BaseModel):
     standard_acls: List[StandardAcl] = Field(default_factory=list, alias="standardAcls")
     extended_acls: List[ExtendedAcl] = Field(default_factory=list, alias="extendedAcls")
     acl_applications: List[AclApplication] = Field(default_factory=list, alias="aclApplications")
+    
+    # New IPsec VPN Configuration
+    ipsec_phase1: List[IPsecPhase1] = Field(default_factory=list, alias="ipsecPhase1")
+    ipsec_phase2: List[IPsecPhase2] = Field(default_factory=list, alias="ipsecPhase2")
+    ipsec_maps: List[IPsecMap] = Field(default_factory=list, alias="ipsecMaps")
 
     class Config:
         populate_by_name = True

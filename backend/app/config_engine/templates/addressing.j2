@@ -67,6 +67,9 @@ interface Vlan{{ svi.vlanId }}
 {% if svi.description %}
  description {{ svi.description }}
 {% endif %}
+{% if svi.vrf %}
+ ip vrf forwarding {{ svi.vrf }}
+{% endif %}
 {% if svi.ipAddress %}
  ip address {{ svi.ipAddress }} {{ svi.subnetMask }}
 {% endif %}
@@ -87,8 +90,14 @@ interface {{ iface.interface }}
 {% if iface.description %}
  description {{ iface.description }}
 {% endif %}
+{% if iface.vrf %}
+ ip vrf forwarding {{ iface.vrf }}
+{% endif %}
 {% if iface.ipAddress %}
  ip address {{ iface.ipAddress }} {{ iface.subnetMask }}
+{% endif %}
+{% if iface.crypto_map %}
+ crypto map {{ iface.crypto_map }}
 {% endif %}
 {% if iface.shutdown %}
  shutdown
@@ -107,6 +116,9 @@ interface {{ sub.parentInterface }}.{{ sub.vlanId }}
  description {{ sub.description }}
 {% endif %}
  encapsulation dot1Q {{ sub.vlanId }}
+{% if sub.vrf %}
+ ip vrf forwarding {{ sub.vrf }}
+{% endif %}
 {% if sub.ipAddress %}
  ip address {{ sub.ipAddress }} {{ sub.subnetMask }}
 {% endif %}

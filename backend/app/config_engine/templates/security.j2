@@ -14,24 +14,63 @@ access-list {{ acl.number }} {{ entry.action }} host {{ entry.source }}
 {% endfor %}
 !
 {% endfor %}
+
 {% for acl in extended_acls %}
 {% if acl.number_or_name.isdigit() %}
 ! Extended ACL {{ acl.number_or_name }}
 {% for entry in acl.entries %}
-access-list {{ acl.number_or_name }} {{ entry.action }} {{ entry.protocol }} {{ entry.source }}{% if entry.source_wildcard %} {{ entry.source_wildcard }}{% endif %} {{ entry.destination }}{% if entry.destination_wildcard %} {{ entry.destination_wildcard }}{% endif %}{% if entry.port %} {{ entry.port }}{% endif %}
-
+access-list {{ acl.number_or_name }} {{ entry.action }} {{ entry.protocol }} {{ entry.source }}{% if entry.source_wildcard %} {{ entry.source_wildcard }}{% endif %} {{ entry.destination }}{% if entry.destination_wildcard %} {{ entry.destination_wildcard }}{% endif %}{% if entry.port %} eq {{ entry.port }}{% endif %}
 {% endfor %}
 {% else %}
 ip access-list extended {{ acl.number_or_name }}
 {% for entry in acl.entries %}
- {{ entry.action }} {{ entry.protocol }} {{ entry.source }}{% if entry.source_wildcard %} {{ entry.source_wildcard }}{% endif %} {{ entry.destination }}{% if entry.destination_wildcard %} {{ entry.destination_wildcard }}{% endif %}{% if entry.port %} {{ entry.port }}{% endif %}
-
+ {{ entry.action }} {{ entry.protocol }} {{ entry.source }}{% if entry.source_wildcard %} {{ entry.source_wildcard }}{% endif %} {{ entry.destination }}{% if entry.destination_wildcard %} {{ entry.destination_wildcard }}{% endif %}{% if entry.port %} eq {{ entry.port }}{% endif %}
 {% endfor %}
+ exit
 {% endif %}
 !
 {% endfor %}
+
 {% for app in acl_applications %}
 interface {{ app.interface }}
  ip access-group {{ app.acl }} {{ app.direction }}
 !
 {% endfor %}
+
+!
+! Security Configuration - IPsec VPN
+!
+{% if ipsec_phase1 %}
+! --- IKE Phase 1 (ISAKMP) ---
+{% for p1 in ipsec_phase1 %}
+crypto isakmp policy {{ p1.policy_id }}
+ encr {{ p1.encryption }}
+ hash {{ p1.hash }}
+ authentication {{ p1.authentication }}
+ group {{ p1.group }}
+ lifetime {{ p1.lifetime }}
+exit
+!
+crypto isakmp key {{ p1.key }} address 0.0.0.0
+{% endfor %}
+{% endif %}
+
+{% if ipsec_phase2 %}
+! --- IKE Phase 2 (Transform Sets) ---
+{% for p2 in ipsec_phase2 %}
+crypto ipsec transform-set {{ p2.name }} {{ p2.protocol }}
+ mode {{ p2.mode }}
+!
+{% endfor %}
+{% endif %}
+
+{% if ipsec_maps %}
+! --- Crypto Maps ---
+{% for map in ipsec_maps %}
+crypto map {{ map.name }} {{ map.priority }} ipsec-isakmp
+ set peer {{ map.peer_ip }}
+ set transform-set {{ map.transform_set }}
+ match address {{ map.match_acl }}
+!
+{% endfor %}
+{% endif %}

@@ -27,19 +27,79 @@ interface DeviceAccess {
   ssh: SshAccess
 }
 
+// --- ACL Models ---
+interface StandardAclEntry {
+    action: string
+    source: string
+    wildcard?: string
+}
+
+interface ExtendedAclEntry {
+    action: string
+    protocol: string
+    source: string
+    sourceWildcard?: string
+    destination: string
+    destinationWildcard?: string
+    port?: string
+}
+
+interface StandardAcl {
+    number: number
+    entries: StandardAclEntry[]
+}
+
+interface ExtendedAcl {
+    numberOrName: string
+    entries: ExtendedAclEntry[]
+}
+
+// --- VPN Interfaces ---
+
+interface IPsecPhase1 {
+  policyId: number
+  encryption: 'aes' | '3des' | 'des'
+  hash: 'sha' | 'md5' | 'sha256'
+  authentication: 'pre-share' | 'rsa-encr'
+  group: number
+  lifetime: number
+  key: string
+}
+
+interface IPsecPhase2 {
+  name: string
+  protocol: string
+  mode: 'tunnel' | 'transport'
+}
+
+interface IPsecMap {
+  name: string
+  priority: number
+  peerIp: string
+  transformSet: string
+  matchAcl: string
+}
+
 interface SecurityConfig {
   deviceAccess: DeviceAccess
-  standardAcls: any[]
-  extendedAcls: any[]
+  standardAcls: StandardAcl[]
+  extendedAcls: ExtendedAcl[]
   aclApplications: any[]
+  // New VPN Fields
+  ipsecPhase1: IPsecPhase1[]
+  ipsecPhase2: IPsecPhase2[]
+  ipsecMaps: IPsecMap[]
 }
 
 interface Props {
   config?: any
   onUpdate: (config: any) => void
+  deviceType?: string // New Prop
 }
 
-export function SecurityTab({ config, onUpdate }: Props) {
+export function SecurityTab({ config, onUpdate, deviceType }: Props) {
+  const isRouter = deviceType === 'router' // Only show VPN for Routers
+
   const initialConfig: SecurityConfig = {
     deviceAccess: {
       enableSecret: '',
@@ -61,6 +121,9 @@ export function SecurityTab({ config, onUpdate }: Props) {
     standardAcls: [],
     extendedAcls: [],
     aclApplications: [],
+    ipsecPhase1: [],
+    ipsecPhase2: [],
+    ipsecMaps: [],
   }
 
   const [securityConfig, setSecurityConfig] = useState<SecurityConfig>(() => {
@@ -91,6 +154,9 @@ export function SecurityTab({ config, onUpdate }: Props) {
       standardAcls: incoming.standardAcls || [],
       extendedAcls: incoming.extendedAcls || [],
       aclApplications: incoming.aclApplications || [],
+      ipsecPhase1: incoming.ipsecPhase1 || [],
+      ipsecPhase2: incoming.ipsecPhase2 || [],
+      ipsecMaps: incoming.ipsecMaps || [],
     }
   })
 
@@ -131,6 +197,16 @@ export function SecurityTab({ config, onUpdate }: Props) {
     const updated = [...securityConfig.standardAcls, { number: 1, entries: [] }]
     push({ ...securityConfig, standardAcls: updated })
   }
+  const addStandardEntry = (aclIdx: number) => {
+      const updated = [...securityConfig.standardAcls];
+      updated[aclIdx].entries.push({ action: 'permit', source: 'any' });
+      push({ ...securityConfig, standardAcls: updated });
+  }
+  const updateStandardEntry = (aclIdx: number, entryIdx: number, patch: Partial<StandardAclEntry>) => {
+      const updated = [...securityConfig.standardAcls];
+      updated[aclIdx].entries[entryIdx] = { ...updated[aclIdx].entries[entryIdx], ...patch };
+      push({ ...securityConfig, standardAcls: updated });
+  }
 
   const removeStandardAcl = (index: number) => {
     const updated = securityConfig.standardAcls.filter((_, i) => i !== index)
@@ -140,6 +216,16 @@ export function SecurityTab({ config, onUpdate }: Props) {
   const addExtendedAcl = () => {
     const updated = [...securityConfig.extendedAcls, { numberOrName: '100', entries: [] }]
     push({ ...securityConfig, extendedAcls: updated })
+  }
+  const addExtendedEntry = (aclIdx: number) => {
+      const updated = [...securityConfig.extendedAcls];
+      updated[aclIdx].entries.push({ action: 'permit', protocol: 'ip', source: 'any', destination: 'any' });
+      push({ ...securityConfig, extendedAcls: updated });
+  }
+  const updateExtendedEntry = (aclIdx: number, entryIdx: number, patch: Partial<ExtendedAclEntry>) => {
+      const updated = [...securityConfig.extendedAcls];
+      updated[aclIdx].entries[entryIdx] = { ...updated[aclIdx].entries[entryIdx], ...patch };
+      push({ ...securityConfig, extendedAcls: updated });
   }
 
   const removeExtendedAcl = (index: number) => {
@@ -155,6 +241,55 @@ export function SecurityTab({ config, onUpdate }: Props) {
   const removeAclApplication = (index: number) => {
     const updated = securityConfig.aclApplications.filter((_, i) => i !== index)
     push({ ...securityConfig, aclApplications: updated })
+  }
+
+  // ---------------- VPN: Phase 1 ----------------
+  const addPhase1 = () => {
+    const updated = [...securityConfig.ipsecPhase1, {
+      policyId: 10, encryption: 'aes', hash: 'sha', authentication: 'pre-share',
+      group: 2, lifetime: 86400, key: 'cisco123'
+    } as IPsecPhase1]
+    push({ ...securityConfig, ipsecPhase1: updated })
+  }
+  const updatePhase1 = (idx: number, updates: Partial<IPsecPhase1>) => {
+    const updated = [...securityConfig.ipsecPhase1]
+    updated[idx] = { ...updated[idx], ...updates }
+    push({ ...securityConfig, ipsecPhase1: updated })
+  }
+  const removePhase1 = (idx: number) => {
+    push({ ...securityConfig, ipsecPhase1: securityConfig.ipsecPhase1.filter((_, i) => i !== idx) })
+  }
+
+  // ---------------- VPN: Phase 2 ----------------
+  const addPhase2 = () => {
+    const updated = [...securityConfig.ipsecPhase2, {
+      name: 'TRANSFORM_SET', protocol: 'esp-aes esp-sha-hmac', mode: 'tunnel'
+    } as IPsecPhase2]
+    push({ ...securityConfig, ipsecPhase2: updated })
+  }
+  const updatePhase2 = (idx: number, updates: Partial<IPsecPhase2>) => {
+    const updated = [...securityConfig.ipsecPhase2]
+    updated[idx] = { ...updated[idx], ...updates }
+    push({ ...securityConfig, ipsecPhase2: updated })
+  }
+  const removePhase2 = (idx: number) => {
+    push({ ...securityConfig, ipsecPhase2: securityConfig.ipsecPhase2.filter((_, i) => i !== idx) })
+  }
+
+  // ---------------- VPN: Crypto Maps ----------------
+  const addMap = () => {
+    const updated = [...securityConfig.ipsecMaps, {
+      name: 'VPN_MAP', priority: 10, peerIp: '', transformSet: 'TRANSFORM_SET', matchAcl: ''
+    } as IPsecMap]
+    push({ ...securityConfig, ipsecMaps: updated })
+  }
+  const updateMap = (idx: number, updates: Partial<IPsecMap>) => {
+    const updated = [...securityConfig.ipsecMaps]
+    updated[idx] = { ...updated[idx], ...updates }
+    push({ ...securityConfig, ipsecMaps: updated })
+  }
+  const removeMap = (idx: number) => {
+    push({ ...securityConfig, ipsecMaps: securityConfig.ipsecMaps.filter((_, i) => i !== idx) })
   }
 
   return (
@@ -390,10 +525,10 @@ export function SecurityTab({ config, onUpdate }: Props) {
           </div>
 
           {securityConfig.standardAcls.map((acl, index) => (
-            <div key={index} className="border rounded p-3 mb-3">
+            <div key={index} className="border rounded p-3 mb-3 bg-white">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
-                  <label className="text-sm">Number:</label>
+                  <label className="text-sm">Number (1-99):</label>
                   <input
                     type="number"
                     value={acl.number}
@@ -406,10 +541,25 @@ export function SecurityTab({ config, onUpdate }: Props) {
                   />
                 </div>
                 <button onClick={() => removeStandardAcl(index)} className="px-2 py-1 bg-red-600 text-white rounded text-sm">
-                  Remove
+                  Remove ACL
                 </button>
               </div>
-              <p className="text-xs text-slate-600">Entry editing stays as-is (use the backend JSON until we add per-entry UI).</p>
+
+              {/* Entries */}
+              <div className="pl-4 border-l-2 border-slate-100 space-y-2">
+                  <p className="text-xs font-semibold text-slate-500">Entries</p>
+                  {acl.entries.map((entry, eIdx) => (
+                      <div key={eIdx} className="flex gap-2 items-center text-sm">
+                          <select value={entry.action} onChange={(e) => updateStandardEntry(index, eIdx, {action: e.target.value})} className="border rounded px-1">
+                              <option value="permit">permit</option>
+                              <option value="deny">deny</option>
+                          </select>
+                          <input type="text" value={entry.source} onChange={(e) => updateStandardEntry(index, eIdx, {source: e.target.value})} className="border rounded px-2 w-32" placeholder="source IP/any" />
+                          <input type="text" value={entry.wildcard || ''} onChange={(e) => updateStandardEntry(index, eIdx, {wildcard: e.target.value})} className="border rounded px-2 w-32" placeholder="wildcard (optional)" />
+                      </div>
+                  ))}
+                  <button onClick={() => addStandardEntry(index)} className="text-xs text-blue-600 hover:underline">+ Add Rule</button>
+              </div>
             </div>
           ))}
         </div>
@@ -424,10 +574,10 @@ export function SecurityTab({ config, onUpdate }: Props) {
           </div>
 
           {securityConfig.extendedAcls.map((acl, index) => (
-            <div key={index} className="border rounded p-3 mb-3">
+            <div key={index} className="border rounded p-3 mb-3 bg-white">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
-                  <label className="text-sm">Number/Name:</label>
+                  <label className="text-sm">Name/Number:</label>
                   <input
                     type="text"
                     value={acl.numberOrName}
@@ -440,10 +590,34 @@ export function SecurityTab({ config, onUpdate }: Props) {
                   />
                 </div>
                 <button onClick={() => removeExtendedAcl(index)} className="px-2 py-1 bg-red-600 text-white rounded text-sm">
-                  Remove
+                  Remove ACL
                 </button>
               </div>
-              <p className="text-xs text-slate-600">Entry editing stays as-is (use the backend JSON until we add per-entry UI).</p>
+
+               {/* Entries */}
+               <div className="pl-4 border-l-2 border-slate-100 space-y-2">
+                  <p className="text-xs font-semibold text-slate-500">Entries</p>
+                  {acl.entries.map((entry, eIdx) => (
+                      <div key={eIdx} className="grid grid-cols-6 gap-2 items-center text-sm">
+                          <select value={entry.action} onChange={(e) => updateExtendedEntry(index, eIdx, {action: e.target.value})} className="border rounded px-1">
+                              <option value="permit">permit</option>
+                              <option value="deny">deny</option>
+                          </select>
+                          <select value={entry.protocol} onChange={(e) => updateExtendedEntry(index, eIdx, {protocol: e.target.value})} className="border rounded px-1">
+                              <option value="ip">ip</option>
+                              <option value="tcp">tcp</option>
+                              <option value="udp">udp</option>
+                              <option value="icmp">icmp</option>
+                              <option value="gre">gre</option>
+                              <option value="esp">esp</option>
+                          </select>
+                          <input type="text" value={entry.source} onChange={(e) => updateExtendedEntry(index, eIdx, {source: e.target.value})} className="border rounded px-2" placeholder="Src (any/host)" />
+                          <input type="text" value={entry.destination} onChange={(e) => updateExtendedEntry(index, eIdx, {destination: e.target.value})} className="border rounded px-2" placeholder="Dst (any/host)" />
+                          <input type="text" value={entry.port || ''} onChange={(e) => updateExtendedEntry(index, eIdx, {port: e.target.value})} className="border rounded px-2" placeholder="eq 80 (opt)" />
+                      </div>
+                  ))}
+                  <button onClick={() => addExtendedEntry(index)} className="text-xs text-blue-600 hover:underline">+ Add Rule</button>
+              </div>
             </div>
           ))}
         </div>
@@ -510,6 +684,142 @@ export function SecurityTab({ config, onUpdate }: Props) {
           ))}
         </div>
       </div>
+
+      {/* --- IPsec VPN Configuration (Routers Only) --- */}
+      {isRouter && (
+      <div className="pt-6 border-t border-slate-300">
+        <h3 className="text-lg font-semibold mb-4 text-slate-800">IPsec VPN</h3>
+
+        {/* Phase 1: ISAKMP Policies */}
+        <div className="border rounded-lg p-4 mb-6 bg-slate-50">
+          <div className="flex items-center justify-between mb-4">
+             <div>
+                <h4 className="font-medium text-slate-800">Phase 1: ISAKMP Policies</h4>
+                <p className="text-xs text-slate-500">Defines how to negotiate the IKE SA.</p>
+             </div>
+             <button onClick={addPhase1} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">Add Policy</button>
+          </div>
+          {securityConfig.ipsecPhase1.map((p1, idx) => (
+             <div key={idx} className="grid md:grid-cols-7 gap-2 items-end border-b border-slate-200 pb-2 mb-2">
+                <div>
+                   <label className="block text-[10px] uppercase text-slate-500">ID</label>
+                   <input type="number" value={p1.policyId} onChange={(e) => updatePhase1(idx, {policyId: Number(e.target.value)})} className="w-full px-2 py-1 border rounded text-xs" />
+                </div>
+                <div>
+                   <label className="block text-[10px] uppercase text-slate-500">Encr</label>
+                   <select value={p1.encryption} onChange={(e) => updatePhase1(idx, {encryption: e.target.value as any})} className="w-full px-2 py-1 border rounded text-xs">
+                     <option value="aes">AES</option>
+                     <option value="3des">3DES</option>
+                     <option value="des">DES</option>
+                   </select>
+                </div>
+                <div>
+                   <label className="block text-[10px] uppercase text-slate-500">Hash</label>
+                   <select value={p1.hash} onChange={(e) => updatePhase1(idx, {hash: e.target.value as any})} className="w-full px-2 py-1 border rounded text-xs">
+                     <option value="sha">SHA</option>
+                     <option value="md5">MD5</option>
+                     <option value="sha256">SHA256</option>
+                   </select>
+                </div>
+                <div>
+                   <label className="block text-[10px] uppercase text-slate-500">Auth</label>
+                   <select value={p1.authentication} onChange={(e) => updatePhase1(idx, {authentication: e.target.value as any})} className="w-full px-2 py-1 border rounded text-xs">
+                     <option value="pre-share">Pre-share</option>
+                     <option value="rsa-encr">RSA</option>
+                   </select>
+                </div>
+                <div>
+                   <label className="block text-[10px] uppercase text-slate-500">Group</label>
+                   <select value={p1.group} onChange={(e) => updatePhase1(idx, {group: Number(e.target.value)})} className="w-full px-2 py-1 border rounded text-xs">
+                     <option value={1}>1</option>
+                     <option value={2}>2</option>
+                     <option value={5}>5</option>
+                     <option value={14}>14</option>
+                   </select>
+                </div>
+                <div>
+                   <label className="block text-[10px] uppercase text-slate-500">Key</label>
+                   <input type="text" value={p1.key} onChange={(e) => updatePhase1(idx, {key: e.target.value})} className="w-full px-2 py-1 border rounded text-xs" />
+                </div>
+                <button onClick={() => removePhase1(idx)} className="text-red-500 text-xs hover:underline">Remove</button>
+             </div>
+          ))}
+        </div>
+
+        {/* Phase 2: Transform Sets */}
+        <div className="border rounded-lg p-4 mb-6 bg-slate-50">
+          <div className="flex items-center justify-between mb-4">
+             <div>
+                <h4 className="font-medium text-slate-800">Phase 2: Transform Sets</h4>
+                <p className="text-xs text-slate-500">Defines encryption/hashing for the IPsec SA.</p>
+             </div>
+             <button onClick={addPhase2} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">Add Set</button>
+          </div>
+          {securityConfig.ipsecPhase2.map((p2, idx) => (
+             <div key={idx} className="grid md:grid-cols-4 gap-2 items-end border-b border-slate-200 pb-2 mb-2">
+                <div>
+                   <label className="block text-[10px] uppercase text-slate-500">Name</label>
+                   <input type="text" value={p2.name} onChange={(e) => updatePhase2(idx, {name: e.target.value})} className="w-full px-2 py-1 border rounded text-xs" />
+                </div>
+                <div className="col-span-1">
+                   <label className="block text-[10px] uppercase text-slate-500">Protocol</label>
+                   <input type="text" value={p2.protocol} onChange={(e) => updatePhase2(idx, {protocol: e.target.value})} className="w-full px-2 py-1 border rounded text-xs" placeholder="esp-aes esp-sha-hmac" />
+                </div>
+                <div>
+                   <label className="block text-[10px] uppercase text-slate-500">Mode</label>
+                   <select value={p2.mode} onChange={(e) => updatePhase2(idx, {mode: e.target.value as any})} className="w-full px-2 py-1 border rounded text-xs">
+                     <option value="tunnel">Tunnel</option>
+                     <option value="transport">Transport</option>
+                   </select>
+                </div>
+                <button onClick={() => removePhase2(idx)} className="text-red-500 text-xs hover:underline">Remove</button>
+             </div>
+          ))}
+        </div>
+
+        {/* Crypto Maps */}
+        <div className="border rounded-lg p-4 bg-slate-50">
+          <div className="flex items-center justify-between mb-4">
+             <div>
+                <h4 className="font-medium text-slate-800">Crypto Maps</h4>
+                <p className="text-xs text-slate-500">Binds Peers, Transform Sets, and ACLs. Apply this map to an Interface.</p>
+             </div>
+             <button onClick={addMap} className="px-3 py-1 bg-blue-600 text-white rounded text-sm">Add Map</button>
+          </div>
+          {securityConfig.ipsecMaps.map((map, idx) => (
+             <div key={idx} className="border border-slate-300 rounded p-2 mb-2 bg-white">
+                <div className="grid md:grid-cols-5 gap-2 items-end mb-2">
+                    <div>
+                        <label className="block text-[10px] uppercase text-slate-500">Map Name</label>
+                        <input type="text" value={map.name} onChange={(e) => updateMap(idx, {name: e.target.value})} className="w-full px-2 py-1 border rounded text-xs" />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] uppercase text-slate-500">Priority</label>
+                        <input type="number" value={map.priority} onChange={(e) => updateMap(idx, {priority: Number(e.target.value)})} className="w-full px-2 py-1 border rounded text-xs" />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] uppercase text-slate-500">Peer IP</label>
+                        <input type="text" value={map.peerIp} onChange={(e) => updateMap(idx, {peerIp: e.target.value})} className="w-full px-2 py-1 border rounded text-xs" placeholder="Remote Tunnel IP" />
+                    </div>
+                    <div>
+                         <label className="block text-[10px] uppercase text-slate-500">Transform Set</label>
+                         <input type="text" value={map.transformSet} onChange={(e) => updateMap(idx, {transformSet: e.target.value})} className="w-full px-2 py-1 border rounded text-xs" />
+                    </div>
+                    <div className="flex justify-end">
+                        <button onClick={() => removeMap(idx)} className="text-red-500 text-xs hover:underline">Remove</button>
+                    </div>
+                </div>
+                <div>
+                     <label className="block text-[10px] uppercase text-slate-500">Match Address (ACL Name)</label>
+                     <input type="text" value={map.matchAcl} onChange={(e) => updateMap(idx, {matchAcl: e.target.value})} className="w-full px-2 py-1 border rounded text-xs" placeholder="e.g. VPN_TRAFFIC_ACL" />
+                </div>
+             </div>
+          ))}
+        </div>
+
+      </div>
+      )}
+
     </div>
   )
 }
