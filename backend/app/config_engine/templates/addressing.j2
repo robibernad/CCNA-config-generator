@@ -96,6 +96,9 @@ interface {{ iface.interface }}
 {% if iface.ipAddress %}
  ip address {{ iface.ipAddress }} {{ iface.subnetMask }}
 {% endif %}
+{% if iface.mpls_ip %}
+ mpls ip
+{% endif %}
 {% if iface.crypto_map %}
  crypto map {{ iface.crypto_map }}
 {% endif %}

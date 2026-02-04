@@ -67,8 +67,15 @@ def validate_wildcard_mask(wildcard: str) -> bool:
 
 
 def is_network_address(ip: str, mask: str) -> bool:
-    """Check if IP is the network address."""
+    """Check if IP is the network address.
+    
+    Exception: /32 masks (255.255.255.255) are always valid for loopbacks/point-to-point.
+    """
     try:
+        # /32 masks are special - the IP IS the network address (loopbacks, point-to-point)
+        if mask == "255.255.255.255":
+            return False
+        
         network = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
         return str(network.network_address) == ip
     except Exception:
@@ -76,8 +83,15 @@ def is_network_address(ip: str, mask: str) -> bool:
 
 
 def is_broadcast_address(ip: str, mask: str) -> bool:
-    """Check if IP is the broadcast address."""
+    """Check if IP is the broadcast address.
+    
+    Exception: /32 masks (255.255.255.255) don't have a separate broadcast address.
+    """
     try:
+        # /32 masks don't have a separate broadcast address
+        if mask == "255.255.255.255":
+            return False
+        
         network = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
         return str(network.broadcast_address) == ip
     except Exception:

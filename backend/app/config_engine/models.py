@@ -127,9 +127,10 @@ class InterfaceAddress(BaseModel):
     description: Optional[str] = None
     shutdown: bool = False
     
-    # New features for WAN/VPN
+    # New features for WAN/VPN/MPLS
     vrf: Optional[str] = None 
     crypto_map: Optional[str] = Field(None, alias="cryptoMap")
+    mpls_ip: bool = Field(False, alias="mplsIp")  # NEW: Enable MPLS on interface
 
     class Config:
         populate_by_name = True

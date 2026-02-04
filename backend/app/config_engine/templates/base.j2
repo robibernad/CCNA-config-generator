@@ -60,37 +60,6 @@ line vty {{ security.device_access.ssh.vty_start }} {{ security.device_access.ss
 !
 {% endif %}
 !
-! VRF Configuration
-!
-{% if routing and routing.vrfs %}
-{% for vrf in routing.vrfs %}
-ip vrf {{ vrf.name }}
- rd {{ vrf.rd }}
- {% if vrf.route_target_export %}route-target export {{ vrf.route_target_export }}{% endif %}
- {% if vrf.route_target_import %}route-target import {{ vrf.route_target_import }}{% endif %}
-exit
-{% endfor %}
-!
-{% endif %}
-!
-! Addressing Configuration
-!
-{% include 'switching.j2' %}
-{% include 'addressing.j2' %}
-!
-! Routing Configuration
-!
-{% include 'routing.j2' %}
-!
-! Security Configuration - Access Control Lists
-!
-{% include 'security.j2' %}
-!
-! Services Configuration
-!
-{% include 'services.j2' %}
-!
-!
 end
 write memory
 !

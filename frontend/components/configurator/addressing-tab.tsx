@@ -26,6 +26,7 @@ interface RoutedInterface {
   shutdown: boolean
   vrf?: string
   cryptoMap?: string
+  mplsIp?: boolean // NEW: MPLS IP support
 }
 
 interface AddressingConfig {
@@ -239,6 +240,7 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
           shutdown: false,
           vrf: '',
           cryptoMap: '',
+          mplsIp: false, // NEW: default to false
         },
       ],
     }
@@ -267,6 +269,7 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
             shutdown: false,
             description: 'Loopback Interface',
             vrf: '',
+            mplsIp: false, // NEW: default to false
           },
         ],
       }
@@ -598,7 +601,7 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-3">
                       <div className="md:col-span-1">
                         <label className="block text-sm font-medium text-slate-600 mb-1">Description (optional)</label>
                         <input
@@ -629,7 +632,26 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
                         />
                       </div>
+                      {/* NEW: MPLS IP Checkbox */}
+                      <div className="flex items-end">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={iface.mplsIp || false}
+                            onChange={(e) => updateInterface(index, 'mplsIp', e.target.checked)}
+                            className="rounded"
+                          />
+                          <span className="text-slate-700">Enable MPLS IP</span>
+                        </label>
+                      </div>
                   </div>
+                  
+                  {/* Help text for MPLS */}
+                  {iface.mplsIp && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">
+                      💡 <strong>MPLS IP enabled:</strong> This interface will participate in MPLS label distribution (typically used on PE router core-facing interfaces).
+                    </div>
+                  )}
                 </div>
               )})}
             </div>

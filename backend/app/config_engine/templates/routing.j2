@@ -10,15 +10,28 @@
 ! VRF Configuration
 {% for vrf in routing.vrfs %}
 ip vrf {{ vrf.name }}
-  rd {{ vrf.rd }}
-  {% if vrf.route_target_export %}
-  route-target export {{ vrf.route_target_export }}
-  {% endif %}
-  {% if vrf.route_target_import %}
-  route-target import {{ vrf.route_target_import }}
-  {% endif %}
+ rd {{ vrf.rd }}
+ {% if vrf.route_target_export %}
+ route-target export {{ vrf.route_target_export }}
+ {% endif %}
+ {% if vrf.route_target_import %}
+ route-target import {{ vrf.route_target_import }}
+ {% endif %}
 exit
 {% endfor %}
+!
+{% endif %}
+
+{# ------------------------- #}
+{# MPLS LDP Configuration    #}
+{# ------------------------- #}
+{% if routing.vrfs and routing.vrfs|length > 0 %}
+!
+! Enable MPLS for L3VPN
+mpls label protocol ldp
+{% if routing.bgp and routing.bgp.router_id %}
+mpls ldp router-id Loopback0 force
+{% endif %}
 !
 {% endif %}
 
@@ -26,12 +39,16 @@ exit
 {# Default + Static Routes   #}
 {# ------------------------- #}
 {% if routing.default_route %}
-ip route 0.0.0.0 0.0.0.0 {{ routing.default_route.next_hop }} {% if routing.default_route.distance %}{{ routing.default_route.distance }}{% endif %}
+ip route 0.0.0.0 0.0.0.0 {% if routing.default_route.exit_interface %}{{ routing.default_route.exit_interface }} {% endif %}{% if routing.default_route.next_hop %}{{ routing.default_route.next_hop }}{% endif %}{% if routing.default_route.distance %} {{ routing.default_route.distance }}{% endif %}
+!
 {% endif %}
 
+{% if routing.static_routes %}
 {% for route in routing.static_routes %}
-ip route {% if route.vrf %}vrf {{ route.vrf }} {% endif %}{{ route.destination }} {{ route.subnet_mask }} {% if route.next_hop %}{{ route.next_hop }}{% endif %}{% if route.exit_interface %}{{ route.exit_interface }}{% endif %} {% if route.distance %}{{ route.distance }}{% endif %}
+ip route {% if route.vrf %}vrf {{ route.vrf }} {% endif %}{{ route.destination }} {{ route.subnet_mask }} {% if route.exit_interface %}{{ route.exit_interface }} {% endif %}{% if route.next_hop %}{{ route.next_hop }}{% endif %}{% if route.distance %} {{ route.distance }}{% endif %}{% if route.name %} name {{ route.name }}{% endif %}
 {% endfor %}
+!
+{% endif %}
 
 {# ------------------------- #}
 {# OSPF Configuration        #}
@@ -48,21 +65,22 @@ router ospf {{ routing.ospf.process_id }}{% if routing.ospf.vrf %} vrf {{ routin
  {% for net in routing.ospf.networks %}
  network {{ net.network }} {{ net.wildcard }} area {{ net.area }}
  {% endfor %}
- {% for intf in routing.ospf.interfaces %}
-  {% if intf.cost %}
- interface {{ intf.interface }}
-  ip ospf cost {{ intf.cost }}
-  {% endif %}
-  {% if intf.priority %}
- interface {{ intf.interface }}
-  ip ospf priority {{ intf.priority }}
-  {% endif %}
- {% endfor %}
  {% for passive in routing.ospf.passive_interfaces %}
  passive-interface {{ passive }}
  {% endfor %}
 exit
 !
+{% for intf in routing.ospf.interfaces %}
+interface {{ intf.interface }}
+ ip ospf {{ routing.ospf.process_id }} area {{ intf.area }}
+ {% if intf.cost %}
+ ip ospf cost {{ intf.cost }}
+ {% endif %}
+ {% if intf.priority is not none %}
+ ip ospf priority {{ intf.priority }}
+ {% endif %}
+!
+{% endfor %}
 {% endif %}
 
 {# ------------------------- #}
@@ -122,6 +140,8 @@ router bgp {{ routing.bgp.asn }}
  exit-address-family
  !
  {# Address Family VPNv4 (MPLS) #}
+ {% set has_vpnv4_neighbors = routing.bgp.neighbors | selectattr('activate_vpnv4', 'equalto', true) | list | length > 0 %}
+ {% if has_vpnv4_neighbors %}
  address-family vpnv4
   {% for neighbor in routing.bgp.neighbors %}
    {% if neighbor.activate_vpnv4 %}
@@ -131,12 +151,13 @@ router bgp {{ routing.bgp.asn }}
   {% endfor %}
  exit-address-family
  !
+ {% endif %}
  {# Address Family for VRFs (VRF Lite / L3VPN) #}
  {% for vrf in routing.vrfs %}
  address-family ipv4 vrf {{ vrf.name }}
   redistribute connected
   {% if routing.ospf and routing.ospf.vrf == vrf.name %}
-  redistribute ospf {{ routing.ospf.process_id }} vrf {{ vrf.name }}
+  redistribute ospf {{ routing.ospf.process_id }}
   {% endif %}
  exit-address-family
  {% endfor %}
@@ -147,12 +168,14 @@ exit
 {# ------------------------- #}
 {# GRE Tunnels               #}
 {# ------------------------- #}
+{% if routing.gre_tunnels %}
 {% for tunnel in routing.gre_tunnels %}
 !
 interface Tunnel{{ tunnel.tunnel_number }}
  ip address {{ tunnel.tunnel_ip }} {{ tunnel.tunnel_mask }}
  tunnel source {{ tunnel.source_interface }}
  tunnel destination {{ tunnel.destination_ip }}
+ tunnel mode gre ip
  {% if tunnel.tunnel_key %}
  tunnel key {{ tunnel.tunnel_key }}
  {% endif %}
@@ -162,8 +185,16 @@ interface Tunnel{{ tunnel.tunnel_number }}
  {% if tunnel.adjust_mss %}
  ip tcp adjust-mss {{ tunnel.adjust_mss }}
  {% endif %}
+ {% if tunnel.keepalive_seconds %}
+  {% if tunnel.keepalive_retries %}
+ keepalive {{ tunnel.keepalive_seconds }} {{ tunnel.keepalive_retries }}
+  {% else %}
+ keepalive {{ tunnel.keepalive_seconds }}
+  {% endif %}
+ {% endif %}
  {% if tunnel.ipsec_profile %}
  tunnel protection ipsec profile {{ tunnel.ipsec_profile }}
  {% endif %}
 exit
 {% endfor %}
+{% endif %}
