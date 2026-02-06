@@ -39,27 +39,37 @@ class ConfigGenerator:
 
         # Base config (hostname, users, SSH, enable secret, banner, vty)
         base_cfg = self._render_base(config)
-        if base_cfg:
+        if base_cfg and self._has_meaningful_content(base_cfg):
             per_module["base"] = base_cfg
 
         # Addressing (needs switchType for mgmt behavior)
         if config.addressing:
-            per_module["addressing"] = self._render_addressing(
+            addressing_cfg = self._render_addressing(
                 config.addressing, switch_type=config.switch_type
             )
+            if addressing_cfg and self._has_meaningful_content(addressing_cfg):
+                per_module["addressing"] = addressing_cfg
 
         if config.switching:
-            per_module["switching"] = self._render_switching(config.switching)
+            switching_cfg = self._render_switching(config.switching)
+            if switching_cfg and self._has_meaningful_content(switching_cfg):
+                per_module["switching"] = switching_cfg
 
         if config.routing:
-            per_module["routing"] = self._render_routing(config.routing)
+            routing_cfg = self._render_routing(config.routing)
+            if routing_cfg and self._has_meaningful_content(routing_cfg):
+                per_module["routing"] = routing_cfg
 
         # Security template stays for ACLs; device access is handled in base.j2
         if config.security:
-            per_module["security"] = self._render_security(config.security)
+            security_cfg = self._render_security(config.security)
+            if security_cfg and self._has_meaningful_content(security_cfg):
+                per_module["security"] = security_cfg
 
         if config.services:
-            per_module["services"] = self._render_services(config.services)
+            services_cfg = self._render_services(config.services)
+            if services_cfg and self._has_meaningful_content(services_cfg):
+                per_module["services"] = services_cfg
 
         merged = self._merge_config(per_module)
 
@@ -92,6 +102,19 @@ class ConfigGenerator:
             if k in d and d[k] is not None:
                 return d[k]
         return default
+
+    def _has_meaningful_content(self, content: str) -> bool:
+        """Check if config content has actual commands (not just comments/whitespace)."""
+        if not content:
+            return False
+        # Remove comment lines and check if any real commands remain
+        lines = content.split('\n')
+        for line in lines:
+            stripped = line.strip()
+            # Skip empty lines, comment lines, and standalone "!"
+            if stripped and not stripped.startswith('!') and stripped != '!':
+                return True
+        return False
 
     # ---------------- Base ----------------
 
@@ -598,6 +621,10 @@ class ConfigGenerator:
                 ospf=r.get("ospf"),
                 eigrp=r.get("eigrp"),
                 gre_tunnels=r.get("gre_tunnels") or [],
+                bgp=r.get("bgp"),
+                vrfs=r.get("vrfs") or [],
+                redistribute_enabled=r.get("redistribute_enabled", False),
+                redistribute_metric=r.get("redistribute_metric"),
             ).strip()
         except Exception as e:
             logger.warning(f"Template error, using fallback: {e}")
@@ -718,6 +745,93 @@ class ConfigGenerator:
                     lines.append(f" keepalive {tunnel['keepaliveSeconds']}")
             lines.append("!")
 
+        # VRF Configuration
+        for vrf in r.get("vrfs") or []:
+            name = vrf.get("name")
+            rd = vrf.get("rd")
+            rt_export = vrf.get("routeTargetExport") or vrf.get("route_target_export")
+            rt_import = vrf.get("routeTargetImport") or vrf.get("route_target_import")
+
+            if name and rd:
+                lines.append(f"ip vrf {name}")
+                lines.append(f" rd {rd}")
+                if rt_export:
+                    lines.append(f" route-target export {rt_export}")
+                if rt_import:
+                    lines.append(f" route-target import {rt_import}")
+                lines.append("!")
+
+        # BGP Configuration
+        bgp = r.get("bgp")
+        if bgp:
+            asn = bgp.get("asn")
+            router_id = bgp.get("routerId") or bgp.get("router_id")
+            neighbors = bgp.get("neighbors") or []
+            networks = bgp.get("networks") or []
+
+            if asn:
+                lines.append(f"router bgp {asn}")
+                if router_id:
+                    lines.append(f" bgp router-id {router_id}")
+                lines.append(" bgp log-neighbor-changes")
+                lines.append(" !")
+
+                # Global neighbors
+                for neighbor in neighbors:
+                    ip = neighbor.get("ip")
+                    remote_as = neighbor.get("remoteAs") or neighbor.get("remote_as")
+                    update_source = neighbor.get("updateSource") or neighbor.get("update_source")
+                    next_hop_self = neighbor.get("nextHopSelf") or neighbor.get("next_hop_self")
+
+                    if ip and remote_as:
+                        lines.append(f" neighbor {ip} remote-as {remote_as}")
+                        if update_source:
+                            lines.append(f" neighbor {ip} update-source {update_source}")
+                        if next_hop_self:
+                            lines.append(f" neighbor {ip} next-hop-self")
+
+                lines.append(" !")
+
+                # Address Family IPv4
+                lines.append(" address-family ipv4")
+                for net in networks:
+                    lines.append(f"  network {net}")
+                for neighbor in neighbors:
+                    ip = neighbor.get("ip")
+                    activate_vpnv4 = neighbor.get("activateVpnv4") or neighbor.get("activate_vpnv4")
+                    if ip and not activate_vpnv4:
+                        lines.append(f"  neighbor {ip} activate")
+                lines.append(" exit-address-family")
+                lines.append(" !")
+
+                # Address Family VPNv4 (if any neighbors have activateVpnv4)
+                has_vpnv4 = any(n.get("activateVpnv4") or n.get("activate_vpnv4") for n in neighbors)
+                if has_vpnv4:
+                    lines.append(" address-family vpnv4")
+                    for neighbor in neighbors:
+                        ip = neighbor.get("ip")
+                        activate_vpnv4 = neighbor.get("activateVpnv4") or neighbor.get("activate_vpnv4")
+                        if ip and activate_vpnv4:
+                            lines.append(f"  neighbor {ip} activate")
+                            lines.append(f"  neighbor {ip} send-community extended")
+                    lines.append(" exit-address-family")
+                    lines.append(" !")
+
+                # Address Family for VRFs
+                for vrf in r.get("vrfs") or []:
+                    vrf_name = vrf.get("name")
+                    if vrf_name:
+                        lines.append(f" address-family ipv4 vrf {vrf_name}")
+                        lines.append("  redistribute connected")
+                        # Check if OSPF is configured for this VRF
+                        if ospf and (ospf.get("vrf") == vrf_name):
+                            process_id = ospf.get("processId") or ospf.get("process_id")
+                            if process_id:
+                                lines.append(f"  redistribute ospf {process_id}")
+                        lines.append(" exit-address-family")
+
+                lines.append("!")
+
         return "\n".join(lines)
 
     # ---------------- Security ----------------
@@ -731,6 +845,9 @@ class ConfigGenerator:
                 standard_acls=s.get("standard_acls") or [],
                 extended_acls=s.get("extended_acls") or [],
                 acl_applications=s.get("acl_applications") or [],
+                ipsec_phase1=s.get("ipsec_phase1") or [],
+                ipsec_phase2=s.get("ipsec_phase2") or [],
+                ipsec_maps=s.get("ipsec_maps") or [],
             ).strip()
         except Exception as e:
             logger.warning(f"Template error, using fallback: {e}")
@@ -780,6 +897,65 @@ class ConfigGenerator:
             lines.append(f"interface {app['interface']}")
             lines.append(f" ip access-group {app['acl']} {app['direction']}")
             lines.append("!")
+
+        # IPsec Phase 1 (ISAKMP)
+        for p1 in s.get("ipsecPhase1") or s.get("ipsec_phase1") or []:
+            policy_id = p1.get("policyId") or p1.get("policy_id")
+            encryption = p1.get("encryption")
+            hash_algo = p1.get("hash")
+            authentication = p1.get("authentication")
+            group = p1.get("group")
+            lifetime = p1.get("lifetime")
+            key = p1.get("key")
+
+            if policy_id:
+                lines.append(f"crypto isakmp policy {policy_id}")
+                if encryption:
+                    lines.append(f" encr {encryption}")
+                if hash_algo:
+                    lines.append(f" hash {hash_algo}")
+                if authentication:
+                    lines.append(f" authentication {authentication}")
+                if group:
+                    lines.append(f" group {group}")
+                if lifetime:
+                    lines.append(f" lifetime {lifetime}")
+                lines.append("!")
+                if key:
+                    lines.append(f"crypto isakmp key {key} address 0.0.0.0")
+
+        if (s.get("ipsecPhase1") or s.get("ipsec_phase1")):
+            lines.append("!")
+
+        # IPsec Phase 2 (Transform Sets)
+        for p2 in s.get("ipsecPhase2") or s.get("ipsec_phase2") or []:
+            name = p2.get("name")
+            protocol = p2.get("protocol")
+            mode = p2.get("mode")
+
+            if name and protocol:
+                lines.append(f"crypto ipsec transform-set {name} {protocol}")
+                if mode:
+                    lines.append(f" mode {mode}")
+                lines.append("!")
+
+        # IPsec Crypto Maps
+        for imap in s.get("ipsecMaps") or s.get("ipsec_maps") or []:
+            name = imap.get("name")
+            priority = imap.get("priority")
+            peer_ip = imap.get("peerIp") or imap.get("peer_ip")
+            transform_set = imap.get("transformSet") or imap.get("transform_set")
+            match_acl = imap.get("matchAcl") or imap.get("match_acl")
+
+            if name and priority:
+                lines.append(f"crypto map {name} {priority} ipsec-isakmp")
+                if peer_ip:
+                    lines.append(f" set peer {peer_ip}")
+                if transform_set:
+                    lines.append(f" set transform-set {transform_set}")
+                if match_acl:
+                    lines.append(f" match address {match_acl}")
+                lines.append("!")
 
         return "\n".join(lines)
 
@@ -868,6 +1044,9 @@ class ConfigGenerator:
         merged = [
             "! CCNA Network Configuration",
             "! Generated by Config Generator",
+            "!",
+            "enable",
+            "configure terminal",
             "!",
         ]
 

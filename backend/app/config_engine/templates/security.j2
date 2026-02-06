@@ -1,7 +1,7 @@
 !
 ! Security Configuration - Access Control Lists
 !
-{% for acl in standardAcls %}
+{% for acl in standard_acls %}
 ! Standard ACL {{ acl.number }}
 {% for entry in acl.entries %}
 {% if entry.source == 'any' %}
@@ -15,17 +15,17 @@ access-list {{ acl.number }} {{ entry.action }} host {{ entry.source }}
 !
 {% endfor %}
 
-{% for acl in extendedAcls %}
-{% if acl.numberOrName.isdigit() %}
-! Extended ACL {{ acl.numberOrName }}
+{% for acl in extended_acls %}
+{% if acl.number_or_name is string and acl.number_or_name.isdigit() %}
+! Extended ACL {{ acl.number_or_name }}
 {% for entry in acl.entries %}
-access-list {{ acl.numberOrName }} {{ entry.action }} {{ entry.protocol }} {{ entry.source }}{% if entry.sourceWildcard %} {{ entry.sourceWildcard }}{% endif %} {{ entry.destination }}{% if entry.destinationWildcard %} {{ entry.destinationWildcard }}{% endif %}{% if entry.port %} eq {{ entry.port }}{% endif %}
+access-list {{ acl.number_or_name }} {{ entry.action }} {{ entry.protocol }} {{ entry.source }}{% if entry.source_wildcard %} {{ entry.source_wildcard }}{% endif %} {{ entry.destination }}{% if entry.destination_wildcard %} {{ entry.destination_wildcard }}{% endif %}{% if entry.port %} eq {{ entry.port }}{% endif %}
 
 {% endfor %}
 {% else %}
-ip access-list extended {{ acl.numberOrName }}
+ip access-list extended {{ acl.number_or_name }}
 {% for entry in acl.entries %}
- {{ entry.action }} {{ entry.protocol }} {{ entry.source }}{% if entry.sourceWildcard %} {{ entry.sourceWildcard }}{% endif %} {{ entry.destination }}{% if entry.destinationWildcard %} {{ entry.destinationWildcard }}{% endif %}{% if entry.port %} eq {{ entry.port }}{% endif %}
+ {{ entry.action }} {{ entry.protocol }} {{ entry.source }}{% if entry.source_wildcard %} {{ entry.source_wildcard }}{% endif %} {{ entry.destination }}{% if entry.destination_wildcard %} {{ entry.destination_wildcard }}{% endif %}{% if entry.port %} eq {{ entry.port }}{% endif %}
 
 {% endfor %}
  exit
@@ -33,7 +33,7 @@ ip access-list extended {{ acl.numberOrName }}
 !
 {% endfor %}
 
-{% for app in aclApplications %}
+{% for app in acl_applications %}
 interface {{ app.interface }}
  ip access-group {{ app.acl }} {{ app.direction }}
 !
@@ -42,36 +42,58 @@ interface {{ app.interface }}
 !
 ! Security Configuration - IPsec VPN
 !
-{% if ipsecPhase1 %}
+{% if ipsec_phase1 %}
 ! --- IKE Phase 1 (ISAKMP) ---
-{% for p1 in ipsecPhase1 %}
-crypto isakmp policy {{ p1.policyId }}
+{% for p1 in ipsec_phase1 %}
+{% if p1.policy_id %}
+crypto isakmp policy {{ p1.policy_id }}
+{% if p1.encryption %}
  encr {{ p1.encryption }}
+{% endif %}
+{% if p1.hash %}
  hash {{ p1.hash }}
+{% endif %}
+{% if p1.authentication %}
  authentication {{ p1.authentication }}
+{% endif %}
+{% if p1.group %}
  group {{ p1.group }}
+{% endif %}
+{% if p1.lifetime %}
  lifetime {{ p1.lifetime }}
+{% endif %}
 !
-crypto isakmp key {{ p1.key }} address 0.0.0.0
+{% if p1.key %}
+crypto isakmp key {{ p1.key }} address 0.0.0.0 0.0.0.0
+{% endif %}
+{% endif %}
 {% endfor %}
 {% endif %}
 
-{% if ipsecPhase2 %}
+{% if ipsec_phase2 %}
 ! --- IKE Phase 2 (Transform Sets) ---
-{% for p2 in ipsecPhase2 %}
+{% for p2 in ipsec_phase2 %}
 crypto ipsec transform-set {{ p2.name }} {{ p2.protocol }}
  mode {{ p2.mode }}
 !
 {% endfor %}
 {% endif %}
 
-{% if ipsecMaps %}
+{% if ipsec_maps %}
 ! --- Crypto Maps ---
-{% for map in ipsecMaps %}
+{% for map in ipsec_maps %}
+{% if map.name and map.priority %}
 crypto map {{ map.name }} {{ map.priority }} ipsec-isakmp
- set peer {{ map.peerIp }}
- set transform-set {{ map.transformSet }}
- match address {{ map.matchAcl }}
+{% if map.peer_ip %}
+ set peer {{ map.peer_ip }}
+{% endif %}
+{% if map.transform_set %}
+ set transform-set {{ map.transform_set }}
+{% endif %}
+{% if map.match_acl %}
+ match address {{ map.match_acl }}
+{% endif %}
 !
+{% endif %}
 {% endfor %}
 {% endif %}

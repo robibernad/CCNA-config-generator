@@ -45,25 +45,37 @@ class DeviceConnector:
         """Execute a show command"""
         try:
             from netmiko import ConnectHandler
-            
+
             params = self._get_connection_params()
-            
+            logger.info(f"Connecting to {params['host']}:{params['port']} using {params['device_type']}")
+
             with ConnectHandler(**params) as conn:
+                logger.info("Connection established successfully")
                 if self.credentials.enable_secret:
                     conn.enable()
-                
+
                 output = conn.send_command(command)
-                
+
                 return ExecuteCommandResponse(
                     ok=True,
                     output=output
                 )
         except Exception as e:
             logger.error(f"Command execution error: {e}")
+
+            # Provide better error messages
+            error_msg = str(e)
+            if "10049" in error_msg or "not valid in its context" in error_msg:
+                error_msg = f"Cannot connect to {self.host}:{self.port}. Make sure the device is started in GNS3 and the console is accessible."
+            elif "timed out" in error_msg.lower():
+                error_msg = f"Connection timeout to {self.host}:{self.port}. Device may not be responding."
+            elif "refused" in error_msg.lower():
+                error_msg = f"Connection refused to {self.host}:{self.port}. Check if the device console is listening."
+
             return ExecuteCommandResponse(
                 ok=False,
                 output="",
-                error=str(e)
+                error=error_msg
             )
     
     async def apply_config(self, commands: List[str], save: bool = True) -> ApplyConfigResponse:

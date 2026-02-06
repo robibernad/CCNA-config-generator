@@ -26,7 +26,9 @@ interface RoutedInterface {
   shutdown: boolean
   vrf?: string
   cryptoMap?: string
-  mplsIp?: boolean // NEW: MPLS IP support
+  mplsIp?: boolean // MPLS IP support
+  duplex?: string  // IPsec Router: full, half, auto
+  speed?: string   // IPsec Router: 10, 100, 1000, auto
 }
 
 interface AddressingConfig {
@@ -57,11 +59,13 @@ interface AddressingConfig {
   }>
 }
 
+type DeviceType = 'switch' | 'router' | 'router-ipsec' | 'nat' | 'cloud'
+
 interface Props {
   interfaces: Interface[]
   /** Physical ports already used in switching config (access/trunk/EtherChannel members). */
   usedSwitchPorts?: string[]
-  deviceType: string
+  deviceType: DeviceType
   switchType?: SwitchType
   config?: AddressingConfig
   onUpdate: (config: AddressingConfig) => void
@@ -645,7 +649,41 @@ export function AddressingTab({ interfaces, usedSwitchPorts = [], deviceType, sw
                         </label>
                       </div>
                   </div>
-                  
+
+                  {/* IPsec Router Specific Settings */}
+                  {deviceType === 'router-ipsec' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-600 mb-1">Duplex (IPsec Router)</label>
+                        <select
+                          value={iface.duplex || ''}
+                          onChange={(e) => updateInterface(index, 'duplex', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        >
+                          <option value="">Auto</option>
+                          <option value="full">Full</option>
+                          <option value="half">Half</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-600 mb-1">Speed (IPsec Router)</label>
+                        <select
+                          value={iface.speed || ''}
+                          onChange={(e) => updateInterface(index, 'speed', e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        >
+                          <option value="">Auto</option>
+                          <option value="10">10 Mbps</option>
+                          <option value="100">100 Mbps</option>
+                          <option value="1000">1000 Mbps</option>
+                        </select>
+                      </div>
+                      <div className="col-span-2 text-xs text-yellow-700">
+                        ⚠️ <strong>IPsec Router:</strong> This device type requires explicit duplex/speed settings for stability.
+                      </div>
+                    </div>
+                  )}
+
                   {/* Help text for MPLS */}
                   {iface.mplsIp && (
                     <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">

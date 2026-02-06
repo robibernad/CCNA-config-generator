@@ -41,19 +41,19 @@ ip routing
 {% endif %}
 
 {# ---------------- Switch Management SVI ---------------- #}
-{% if management %}
-interface Vlan{{ management.vlanId }}
-{% if management.ipAddress %}
- ip address {{ management.ipAddress }} {{ management.subnetMask }}
+{% if management and management.vlan_id %}
+interface Vlan{{ management.vlan_id }}
+{% if management.ip_address and management.subnet_mask %}
+ ip address {{ management.ip_address }} {{ management.subnet_mask }}
 {% endif %}
  no shutdown
 !
-{% if switchType == "l2" and management.defaultGateway %}
-ip default-gateway {{ management.defaultGateway }}
+{% if switchType == "l2" and management.default_gateway %}
+ip default-gateway {{ management.default_gateway }}
 !
 {% endif %}
-{% if switchType == "msw" and management.defaultRouteNextHop %}
-ip route 0.0.0.0 0.0.0.0 {{ management.defaultRouteNextHop }}
+{% if switchType == "msw" and management.default_route_next_hop %}
+ip route 0.0.0.0 0.0.0.0 {{ management.default_route_next_hop }}
 !
 {% endif %}
 {% endif %}
@@ -62,16 +62,16 @@ ip route 0.0.0.0 0.0.0.0 {{ management.defaultRouteNextHop }}
 {% if vlanInterfaces %}
 {% for svi in vlanInterfaces %}
   {# Avoid duplicate if user added same VLAN as management SVI #}
-  {% if not management or (svi.vlanId != management.vlanId) %}
-interface Vlan{{ svi.vlanId }}
+  {% if svi.vlan_id and (not management or (svi.vlan_id != management.vlan_id)) %}
+interface Vlan{{ svi.vlan_id }}
 {% if svi.description %}
  description {{ svi.description }}
 {% endif %}
 {% if svi.vrf %}
  ip vrf forwarding {{ svi.vrf }}
 {% endif %}
-{% if svi.ipAddress %}
- ip address {{ svi.ipAddress }} {{ svi.subnetMask }}
+{% if svi.ip_address and svi.subnet_mask %}
+ ip address {{ svi.ip_address }} {{ svi.subnet_mask }}
 {% endif %}
 {% if svi.shutdown %}
  shutdown
@@ -86,6 +86,7 @@ interface Vlan{{ svi.vlanId }}
 {# ---------------- Routed Interfaces ---------------- #}
 {% if interfaces %}
 {% for iface in interfaces %}
+{% if iface.interface %}
 interface {{ iface.interface }}
 {% if iface.description %}
  description {{ iface.description }}
@@ -93,8 +94,14 @@ interface {{ iface.interface }}
 {% if iface.vrf %}
  ip vrf forwarding {{ iface.vrf }}
 {% endif %}
-{% if iface.ipAddress %}
- ip address {{ iface.ipAddress }} {{ iface.subnetMask }}
+{% if iface.ip_address and iface.subnet_mask %}
+ ip address {{ iface.ip_address }} {{ iface.subnet_mask }}
+{% endif %}
+{% if iface.duplex %}
+ duplex {{ iface.duplex }}
+{% endif %}
+{% if iface.speed %}
+ speed {{ iface.speed }}
 {% endif %}
 {% if iface.mpls_ip %}
  mpls ip
@@ -108,23 +115,26 @@ interface {{ iface.interface }}
  no shutdown
 {% endif %}
 !
+{% endif %}
 {% endfor %}
 {% endif %}
 
 {# ---------------- Router-on-a-stick Subinterfaces ---------------- #}
 {% if subinterfaces %}
 {% for sub in subinterfaces %}
-interface {{ sub.parentInterface }}.{{ sub.vlanId }}
+{% if sub.parent_interface and sub.vlan_id %}
+interface {{ sub.parent_interface }}.{{ sub.vlan_id }}
 {% if sub.description %}
  description {{ sub.description }}
 {% endif %}
- encapsulation dot1Q {{ sub.vlanId }}
+ encapsulation dot1Q {{ sub.vlan_id }}
 {% if sub.vrf %}
  ip vrf forwarding {{ sub.vrf }}
 {% endif %}
-{% if sub.ipAddress %}
- ip address {{ sub.ipAddress }} {{ sub.subnetMask }}
+{% if sub.ip_address and sub.subnet_mask %}
+ ip address {{ sub.ip_address }} {{ sub.subnet_mask }}
 {% endif %}
 !
+{% endif %}
 {% endfor %}
 {% endif %}

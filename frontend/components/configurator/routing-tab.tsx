@@ -109,6 +109,8 @@ interface RoutingConfig {
   bgp?: BGPConfig | null
   greTunnels?: GreTunnel[]
   vrfs?: VRFConfig[]
+  redistributeEnabled?: boolean
+  redistributeMetric?: string
 }
 
 interface Props {
@@ -280,6 +282,50 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
     if (set.has(ifaceName)) set.delete(ifaceName)
     else set.add(ifaceName)
     updateConfig({ ospf: { ...ospf, passiveInterfaces: Array.from(set).sort() } })
+  }
+
+  // ---------------- EIGRP ----------------
+  const toggleEigrp = (enabled: boolean) => {
+    if (!enabled) return updateConfig({ eigrp: null })
+    updateConfig({
+      eigrp: {
+        enabled: true,
+        asn: 100,
+        routerId: '',
+        noAutoSummary: true,
+        networks: [],
+        passiveInterfaces: [],
+      },
+    })
+  }
+
+  const addEigrpNetwork = () => {
+    const eigrp = routingConfig.eigrp
+    if (!eigrp) return
+    updateConfig({ eigrp: { ...eigrp, networks: [...eigrp.networks, { network: '', wildcard: '' }] } })
+  }
+
+  const updateEigrpNetwork = (idx: number, field: keyof EigrpNetwork, value: any) => {
+    const eigrp = routingConfig.eigrp
+    if (!eigrp) return
+    const networks = [...eigrp.networks]
+    networks[idx] = { ...networks[idx], [field]: value }
+    updateConfig({ eigrp: { ...eigrp, networks } })
+  }
+
+  const removeEigrpNetwork = (idx: number) => {
+    const eigrp = routingConfig.eigrp
+    if (!eigrp) return
+    updateConfig({ eigrp: { ...eigrp, networks: eigrp.networks.filter((_, i) => i !== idx) } })
+  }
+
+  const toggleEigrpPassive = (ifaceName: string) => {
+    const eigrp = routingConfig.eigrp
+    if (!eigrp) return
+    const set = new Set(eigrp.passiveInterfaces || [])
+    if (set.has(ifaceName)) set.delete(ifaceName)
+    else set.add(ifaceName)
+    updateConfig({ eigrp: { ...eigrp, passiveInterfaces: Array.from(set).sort() } })
   }
 
   // ---------------- BGP Logic ----------------
@@ -537,6 +583,73 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
         )}
       </div>
 
+      {/* --- EIGRP --- */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">EIGRP</h3>
+            <p className="text-sm text-slate-600">Configure Enhanced Interior Gateway Routing Protocol.</p>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={!!routingConfig.eigrp?.enabled} onChange={(e) => toggleEigrp(e.target.checked)} />
+            Enable
+          </label>
+        </div>
+
+        {routingConfig.eigrp?.enabled && (
+          <div className="space-y-6">
+            <div className="grid md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">AS Number</label>
+                <input type="number" value={routingConfig.eigrp.asn} onChange={(e) => updateConfig({ eigrp: { ...routingConfig.eigrp!, asn: Number(e.target.value) } })} className="w-full px-3 py-2 border rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Router ID</label>
+                <input type="text" value={routingConfig.eigrp.routerId || ''} onChange={(e) => updateConfig({ eigrp: { ...routingConfig.eigrp!, routerId: e.target.value } })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Optional" />
+              </div>
+              <div className="flex items-center pt-6">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={routingConfig.eigrp.noAutoSummary} onChange={(e) => updateConfig({ eigrp: { ...routingConfig.eigrp!, noAutoSummary: e.target.checked } })} />
+                  No Auto-Summary
+                </label>
+              </div>
+            </div>
+
+            {/* EIGRP Networks */}
+            <div className="border-t pt-4">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-sm font-semibold">Networks</h4>
+                <button type="button" onClick={addEigrpNetwork} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">Add Network</button>
+              </div>
+              {routingConfig.eigrp.networks.map((n, idx) => (
+                <div key={idx} className="grid grid-cols-3 gap-2 mb-2">
+                  <input type="text" placeholder="Network" value={n.network} onChange={(e) => updateEigrpNetwork(idx, 'network', e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                  <input type="text" placeholder="Wildcard (optional)" value={n.wildcard || ''} onChange={(e) => updateEigrpNetwork(idx, 'wildcard', e.target.value)} className="border rounded px-2 py-1 text-sm" />
+                  <button type="button" onClick={() => removeEigrpNetwork(idx)} className="text-red-500 text-xs">Remove</button>
+                </div>
+              ))}
+            </div>
+
+            {/* EIGRP Passive Interfaces */}
+            <div className="border-t pt-4">
+              <h4 className="text-sm font-semibold mb-2">Passive Interfaces</h4>
+              <div className="flex flex-wrap gap-2">
+                {interfaceOptions.map((ifName) => (
+                  <label key={ifName} className="flex items-center gap-1 text-xs bg-slate-100 px-2 py-1 rounded">
+                    <input
+                      type="checkbox"
+                      checked={(routingConfig.eigrp?.passiveInterfaces || []).includes(ifName)}
+                      onChange={() => toggleEigrpPassive(ifName)}
+                    />
+                    {ifName}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* --- BGP --- */}
       <div className="bg-white border border-slate-200 rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
@@ -669,6 +782,54 @@ export function RoutingTab({ interfaces, usedSwitchPorts = [], config, onUpdate 
           ))}
         </div>
       </div>
+
+      {/* Route Redistribution */}
+      {routingConfig.ospf && routingConfig.eigrp?.enabled && (
+        <div className="bg-white border border-yellow-200 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Route Redistribution</h3>
+              <p className="text-sm text-slate-600">Redistribute routes between OSPF and EIGRP</p>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={routingConfig.redistributeEnabled || false}
+                onChange={(e) => updateConfig({ redistributeEnabled: e.target.checked })}
+              />
+              Enable Redistribution
+            </label>
+          </div>
+
+          {routingConfig.redistributeEnabled && (
+            <div className="space-y-4">
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                <p className="font-semibold mb-2">⚠️ Redistribution Configuration:</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>OSPF will redistribute EIGRP {routingConfig.eigrp.asn} routes with subnets</li>
+                  <li>EIGRP will redistribute OSPF {routingConfig.ospf.processId} routes with metrics</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  EIGRP Metric (Optional - default: 10000 100 255 1 1500)
+                </label>
+                <input
+                  type="text"
+                  value={routingConfig.redistributeMetric || ''}
+                  onChange={(e) => updateConfig({ redistributeMetric: e.target.value })}
+                  placeholder="bandwidth delay reliability load mtu"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Format: bandwidth delay reliability load mtu (e.g., "10000 100 255 1 1500")
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
     </div>
   )

@@ -233,7 +233,7 @@ export default function ProjectPage() {
             ← Back to Devices
           </button>
 
-          <DeviceConfigurator device={selectedDevice} />
+          <DeviceConfigurator device={selectedDevice} projectId={selectedProject || ''} />
         </div>
       )}
     </div>

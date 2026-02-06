@@ -1,47 +1,61 @@
+{% if hostname %}
 hostname {{ hostname }}
+{% endif %}
 !
-{% if enableSecret %}
-enable secret {{ enableSecret }}
+{% if enable_secret %}
+enable secret {{ enable_secret }}
 {% endif %}
-{% if servicePasswordEncryption %}
+{% if service_password_encryption %}
 service password-encryption
-{% endif %}
-{% if domainName %}
-ip domain-name {{ domainName }}
 {% endif %}
 !
 no ip domain-lookup
 !
-{% if bannerMotd %}
+{% if banner_motd %}
 banner motd ^
-{{ bannerMotd }}
+{{ banner_motd }}
 ^
 !
 {% endif %}
 {% if users %}
 {% for user in users %}
+{% if user.username %}
 username {{ user.username }}{% if user.privilege %} privilege {{ user.privilege }}{% endif %}{% if user.secret %} secret {{ user.secret }}{% elif user.password %} password {{ user.password }}{% endif %}
 
+{% endif %}
 {% endfor %}
 !
 {% endif %}
-{% if sshEnabled %}
-ip ssh version {{ sshVersion }}
-ip ssh time-out {{ execTimeoutSec or 60 }}
+{% if ssh_enabled and domain_name %}
+ip domain-name {{ domain_name }}
+{% if rsa_modulus %}
+crypto key generate rsa modulus {{ rsa_modulus }}
+{% endif %}
+{% if ssh_version %}
+ip ssh version {{ ssh_version }}
+{% endif %}
+ip ssh time-out 60
 ip ssh authentication-retries 2
-crypto key generate rsa modulus {{ rsaModulus }}
 !
 {% endif %}
 line con 0
  logging synchronous
  exec-timeout 0 0
 !
-{% if sshEnabled %}
-line vty {{ vtyStart }} {{ vtyEnd }}
+{% if ssh_enabled %}
+{% if vty_start is defined and vty_end is defined %}
+line vty {{ vty_start }} {{ vty_end }}
+{% else %}
+line vty 0 4
+{% endif %}
  logging synchronous
  login local
- exec-timeout {{ execTimeoutMin }} {{ execTimeoutSec }}
-{% if not allowTelnet %}
+{% if exec_timeout_min is defined and exec_timeout_sec is defined %}
+ exec-timeout {{ exec_timeout_min }} {{ exec_timeout_sec }}
+{% else %}
+ exec-timeout 5 0
+{% endif %}
+{% if not allow_telnet %}
  transport input ssh
 {% else %}
  transport input ssh telnet

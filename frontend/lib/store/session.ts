@@ -93,13 +93,18 @@ export const useSessionStore = create<SessionStore>()(
 
       // Called when Zustand rehydrates from storage
       onRehydrateStorage: () => (state) => {
+        console.log('🔄 Zustand rehydrating from storage...')
+        console.log('📦 Rehydrated sessionId:', state?.sessionId)
+
         // mark hydration complete
         state?.setHasHydrated(true)
 
         // restore api client session id if present
         if (state?.sessionId) {
+          console.log('✅ Setting sessionId in API client:', state.sessionId)
           apiClient.setSessionId(state.sessionId)
         } else {
+          console.log('⚠️ No sessionId found in rehydrated state')
           apiClient.setSessionId(null)
         }
       },

@@ -11,11 +11,11 @@
 {% for vrf in vrfs %}
 ip vrf {{ vrf.name }}
  rd {{ vrf.rd }}
-{% if vrf.routeTargetExport %}
- route-target export {{ vrf.routeTargetExport }}
+{% if vrf.route_target_export %}
+ route-target export {{ vrf.route_target_export }}
 {% endif %}
-{% if vrf.routeTargetImport %}
- route-target import {{ vrf.routeTargetImport }}
+{% if vrf.route_target_import %}
+ route-target import {{ vrf.route_target_import }}
 {% endif %}
 !
 {% endfor %}
@@ -28,7 +28,7 @@ ip vrf {{ vrf.name }}
 !
 ! Enable MPLS for L3VPN
 mpls label protocol ldp
-{% if bgp and bgp.routerId %}
+{% if bgp and bgp.router_id %}
 mpls ldp router-id Loopback0 force
 {% endif %}
 !
@@ -37,20 +37,20 @@ mpls ldp router-id Loopback0 force
 {# ------------------------- #}
 {# Default + Static Routes   #}
 {# ------------------------- #}
-{% if defaultRoute %}
-{% if defaultRoute.exitInterface and defaultRoute.nextHop %}
-ip route 0.0.0.0 0.0.0.0 {{ defaultRoute.exitInterface }} {{ defaultRoute.nextHop }}{% if defaultRoute.distance %} {{ defaultRoute.distance }}{% endif %}
-{% elif defaultRoute.nextHop %}
-ip route 0.0.0.0 0.0.0.0 {{ defaultRoute.nextHop }}{% if defaultRoute.distance %} {{ defaultRoute.distance }}{% endif %}
-{% elif defaultRoute.exitInterface %}
-ip route 0.0.0.0 0.0.0.0 {{ defaultRoute.exitInterface }}{% if defaultRoute.distance %} {{ defaultRoute.distance }}{% endif %}
+{% if default_route %}
+{% if default_route.exit_interface and default_route.next_hop %}
+ip route 0.0.0.0 0.0.0.0 {{ default_route.exit_interface }} {{ default_route.next_hop }}{% if default_route.distance %} {{ default_route.distance }}{% endif %}
+{% elif default_route.next_hop %}
+ip route 0.0.0.0 0.0.0.0 {{ default_route.next_hop }}{% if default_route.distance %} {{ default_route.distance }}{% endif %}
+{% elif default_route.exit_interface %}
+ip route 0.0.0.0 0.0.0.0 {{ default_route.exit_interface }}{% if default_route.distance %} {{ default_route.distance }}{% endif %}
 {% endif %}
 !
 {% endif %}
 
-{% if staticRoutes %}
-{% for route in staticRoutes %}
-ip route {% if route.vrf %}vrf {{ route.vrf }} {% endif %}{{ route.destination }} {{ route.subnetMask }} {% if route.exitInterface %}{{ route.exitInterface }} {% endif %}{% if route.nextHop %}{{ route.nextHop }}{% endif %}{% if route.distance %} {{ route.distance }}{% endif %}{% if route.name %} name {{ route.name }}{% endif %}
+{% if static_routes %}
+{% for route in static_routes %}
+ip route {% if route.vrf %}vrf {{ route.vrf }} {% endif %}{{ route.destination }} {{ route.subnet_mask }} {% if route.exit_interface %}{{ route.exit_interface }} {% endif %}{% if route.next_hop %}{{ route.next_hop }}{% endif %}{% if route.distance %} {{ route.distance }}{% endif %}{% if route.name %} name {{ route.name }}{% endif %}
 {% endfor %}
 !
 {% endif %}
@@ -58,25 +58,28 @@ ip route {% if route.vrf %}vrf {{ route.vrf }} {% endif %}{{ route.destination }
 {# ------------------------- #}
 {# OSPF Configuration        #}
 {# ------------------------- #}
-{% if ospf and ospf.processId %}
+{% if ospf and ospf.process_id %}
 !
-router ospf {{ ospf.processId }}{% if ospf.vrf %} vrf {{ ospf.vrf }}{% endif %}
-{% if ospf.routerId %}
- router-id {{ ospf.routerId }}
+router ospf {{ ospf.process_id }}{% if ospf.vrf %} vrf {{ ospf.vrf }}{% endif %}
+{% if ospf.router_id %}
+ router-id {{ ospf.router_id }}
 {% endif %}
-{% if ospf.defaultOriginate %}
+{% if ospf.default_originate %}
  default-information originate always
 {% endif %}
 {% for net in ospf.networks %}
  network {{ net.network }} {{ net.wildcard }} area {{ net.area }}
 {% endfor %}
-{% for passive in ospf.passiveInterfaces %}
+{% for passive in ospf.passive_interfaces %}
  passive-interface {{ passive }}
 {% endfor %}
+{% if redistribute_enabled and eigrp and eigrp.enabled %}
+ redistribute eigrp {{ eigrp.asn }} subnets
+{% endif %}
 !
 {% for intf in ospf.interfaces %}
 interface {{ intf.interface }}
- ip ospf {{ ospf.processId }} area {{ intf.area }}
+ ip ospf {{ ospf.process_id }} area {{ intf.area }}
 {% if intf.cost %}
  ip ospf cost {{ intf.cost }}
 {% endif %}
@@ -93,18 +96,26 @@ interface {{ intf.interface }}
 {% if eigrp and eigrp.enabled %}
 !
 router eigrp {{ eigrp.asn }}
-{% if eigrp.routerId %}
- eigrp router-id {{ eigrp.routerId }}
+{% if eigrp.router_id %}
+ eigrp router-id {{ eigrp.router_id }}
 {% endif %}
-{% if eigrp.noAutoSummary %}
+{% if eigrp.no_auto_summary %}
  no auto-summary
 {% endif %}
 {% for net in eigrp.networks %}
  network {{ net.network }}{% if net.wildcard %} {{ net.wildcard }}{% endif %}
+
 {% endfor %}
-{% for passive in eigrp.passiveInterfaces %}
+{% for passive in eigrp.passive_interfaces %}
  passive-interface {{ passive }}
 {% endfor %}
+{% if redistribute_enabled and ospf and ospf.process_id %}
+{% if redistribute_metric %}
+ redistribute ospf {{ ospf.process_id }} metric {{ redistribute_metric }}
+{% else %}
+ redistribute ospf {{ ospf.process_id }} metric 10000 100 255 1 1500
+{% endif %}
+{% endif %}
 !
 {% endif %}
 
@@ -114,19 +125,21 @@ router eigrp {{ eigrp.asn }}
 {% if bgp %}
 !
 router bgp {{ bgp.asn }}
-{% if bgp.routerId %}
- bgp router-id {{ bgp.routerId }}
+{% if bgp.router_id %}
+ bgp router-id {{ bgp.router_id }}
 {% endif %}
  bgp log-neighbor-changes
  !
  {# Global Neighbors #}
 {% for neighbor in bgp.neighbors %}
- neighbor {{ neighbor.ip }} remote-as {{ neighbor.remoteAs }}
-{% if neighbor.updateSource %}
- neighbor {{ neighbor.ip }} update-source {{ neighbor.updateSource }}
+{% if neighbor.ip and neighbor.remote_as %}
+ neighbor {{ neighbor.ip }} remote-as {{ neighbor.remote_as }}
+{% if neighbor.update_source %}
+ neighbor {{ neighbor.ip }} update-source {{ neighbor.update_source }}
 {% endif %}
-{% if neighbor.nextHopSelf %}
+{% if neighbor.next_hop_self %}
  neighbor {{ neighbor.ip }} next-hop-self
+{% endif %}
 {% endif %}
 {% endfor %}
  !
@@ -136,18 +149,18 @@ router bgp {{ bgp.asn }}
   network {{ net }}
 {% endfor %}
 {% for neighbor in bgp.neighbors %}
-{% if not neighbor.activateVpnv4 %}
+{% if neighbor.ip and not neighbor.activate_vpnv4 %}
   neighbor {{ neighbor.ip }} activate
 {% endif %}
 {% endfor %}
  exit-address-family
  !
  {# Address Family VPNv4 (MPLS) #}
-{% set has_vpnv4_neighbors = bgp.neighbors | selectattr('activateVpnv4', 'equalto', true) | list | length > 0 %}
+{% set has_vpnv4_neighbors = bgp.neighbors | selectattr('activate_vpnv4', 'equalto', true) | list | length > 0 %}
 {% if has_vpnv4_neighbors %}
  address-family vpnv4
 {% for neighbor in bgp.neighbors %}
-{% if neighbor.activateVpnv4 %}
+{% if neighbor.ip and neighbor.activate_vpnv4 %}
   neighbor {{ neighbor.ip }} activate
   neighbor {{ neighbor.ip }} send-community extended
 {% endif %}
@@ -159,8 +172,8 @@ router bgp {{ bgp.asn }}
 {% for vrf in vrfs %}
  address-family ipv4 vrf {{ vrf.name }}
   redistribute connected
-{% if ospf and ospf.vrf == vrf.name %}
-  redistribute ospf {{ ospf.processId }}
+{% if ospf and ospf.vrf == vrf.name and ospf.process_id %}
+  redistribute ospf {{ ospf.process_id }}
 {% endif %}
  exit-address-family
 {% endfor %}
@@ -170,32 +183,32 @@ router bgp {{ bgp.asn }}
 {# ------------------------- #}
 {# GRE Tunnels               #}
 {# ------------------------- #}
-{% if greTunnels %}
-{% for tunnel in greTunnels %}
+{% if gre_tunnels %}
+{% for tunnel in gre_tunnels %}
 !
-interface Tunnel{{ tunnel.tunnelNumber }}
- ip address {{ tunnel.tunnelIp }} {{ tunnel.tunnelMask }}
- tunnel source {{ tunnel.sourceInterface }}
- tunnel destination {{ tunnel.destinationIp }}
+interface Tunnel{{ tunnel.tunnel_number }}
+ ip address {{ tunnel.tunnel_ip }} {{ tunnel.tunnel_mask }}
+ tunnel source {{ tunnel.source_interface }}
+ tunnel destination {{ tunnel.destination_ip }}
  tunnel mode gre ip
-{% if tunnel.tunnelKey %}
- tunnel key {{ tunnel.tunnelKey }}
+{% if tunnel.tunnel_key %}
+ tunnel key {{ tunnel.tunnel_key }}
 {% endif %}
 {% if tunnel.mtu %}
  ip mtu {{ tunnel.mtu }}
 {% endif %}
-{% if tunnel.adjustMss %}
- ip tcp adjust-mss {{ tunnel.adjustMss }}
+{% if tunnel.adjust_mss %}
+ ip tcp adjust-mss {{ tunnel.adjust_mss }}
 {% endif %}
-{% if tunnel.keepaliveSeconds %}
-{% if tunnel.keepaliveRetries %}
- keepalive {{ tunnel.keepaliveSeconds }} {{ tunnel.keepaliveRetries }}
+{% if tunnel.keepalive_seconds %}
+{% if tunnel.keepalive_retries %}
+ keepalive {{ tunnel.keepalive_seconds }} {{ tunnel.keepalive_retries }}
 {% else %}
- keepalive {{ tunnel.keepaliveSeconds }}
+ keepalive {{ tunnel.keepalive_seconds }}
 {% endif %}
 {% endif %}
-{% if tunnel.ipsecProfile %}
- tunnel protection ipsec profile {{ tunnel.ipsecProfile }}
+{% if tunnel.ipsec_profile %}
+ tunnel protection ipsec profile {{ tunnel.ipsec_profile }}
 {% endif %}
 !
 {% endfor %}

@@ -50,7 +50,7 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
 
     // Filter out interfaces already used for L2 switching (access/trunk/EC members)
     const free = base.filter((name) => !usedSet.has(name))
-    return [...new Set(free.length > 0 ? free : base)]
+    return Array.from(new Set(free.length > 0 ? free : base))
   }, [connectedIfs, interfaces, usedSet])
 
   const getInterfaceOptions = (current?: string) => {
@@ -124,6 +124,31 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
   const removeDhcpPool = (index: number) => {
     const updated = (localConfig.dhcpPools || []).filter((_: any, i: number) => i !== index)
     push({ ...localConfig, dhcpPools: updated })
+  }
+
+  const addDhcpExclusion = () => {
+    const next = {
+      ...localConfig,
+      dhcpExclusions: [
+        ...(localConfig.dhcpExclusions || []),
+        {
+          start: '',
+          end: '',
+        },
+      ],
+    }
+    push(next)
+  }
+
+  const updateDhcpExclusion = (index: number, patch: any) => {
+    const updated = [...(localConfig.dhcpExclusions || [])]
+    updated[index] = { ...updated[index], ...patch }
+    push({ ...localConfig, dhcpExclusions: updated })
+  }
+
+  const removeDhcpExclusion = (index: number) => {
+    const updated = (localConfig.dhcpExclusions || []).filter((_: any, i: number) => i !== index)
+    push({ ...localConfig, dhcpExclusions: updated })
   }
 
   // --- NAT Handlers (NAT Context) ---
@@ -320,6 +345,66 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
                 )}
             </div>
 
+            {/* DHCP Exclusions */}
+            <div className={canDoL3Services ? '' : 'opacity-60'}>
+                <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-slate-800">DHCP Excluded Addresses</h3>
+                <button
+                    onClick={addDhcpExclusion}
+                    disabled={!canDoL3Services}
+                    className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    + Add Exclusion
+                </button>
+                </div>
+
+                {(localConfig.dhcpExclusions || []).length === 0 ? (
+                <div className="text-center py-6 text-slate-500 border-2 border-dashed border-slate-200 rounded-lg">
+                    No DHCP exclusions configured
+                </div>
+                ) : (
+                <div className="space-y-4">
+                    {(localConfig.dhcpExclusions || []).map((excl: any, index: number) => (
+                    <div key={index} className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+                        <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">Start IP</label>
+                            <input
+                            type="text"
+                            value={excl.start}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateDhcpExclusion(index, { start: e.target.value })}
+                            placeholder="192.168.1.1"
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">End IP (optional, same as start for single IP)</label>
+                            <input
+                            type="text"
+                            value={excl.end || ''}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateDhcpExclusion(index, { end: e.target.value })}
+                            placeholder="192.168.1.10"
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+                        </div>
+
+                        <button
+                        onClick={() => removeDhcpExclusion(index)}
+                        disabled={!canDoL3Services}
+                        className="mt-3 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                        Remove Exclusion
+                        </button>
+                    </div>
+                    ))}
+                </div>
+                )}
+            </div>
+
             {/* DHCP Pools */}
             <div className={canDoL3Services ? '' : 'opacity-60'}>
                 <div className="flex items-center justify-between mb-4">
@@ -340,7 +425,7 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
                 ) : (
                 <div className="space-y-4">
                     {(localConfig.dhcpPools || []).map((pool: any, index: number) => (
-                    <div key={index} className="p-4 bg-green-50 rounded-lg border border-green-200">
+                    <div key={index} className="p-4 bg-green-50 rounded-lg border border-green-200 space-y-4">
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                         <div>
                             <label className="block text-xs text-slate-500 mb-1">Pool Name</label>
@@ -366,6 +451,18 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
                         </div>
 
                         <div>
+                            <label className="block text-xs text-slate-500 mb-1">Subnet Mask</label>
+                            <input
+                            type="text"
+                            value={pool.mask || ''}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateDhcpPool(index, { mask: e.target.value })}
+                            placeholder="255.255.255.0"
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+
+                        <div>
                             <label className="block text-xs text-slate-500 mb-1">Default Gateway</label>
                             <input
                             type="text"
@@ -376,12 +473,47 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
                             className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
                             />
                         </div>
+
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">Domain Name</label>
+                            <input
+                            type="text"
+                            value={pool.domainName || ''}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateDhcpPool(index, { domainName: e.target.value })}
+                            placeholder="example.com"
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">Lease (days)</label>
+                            <input
+                            type="number"
+                            value={pool.leaseDays || 1}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateDhcpPool(index, { leaseDays: Number(e.target.value) })}
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
+                        </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs text-slate-500 mb-1">DNS Servers (comma-separated)</label>
+                            <input
+                            type="text"
+                            value={(pool.dnsServers || []).join(', ')}
+                            disabled={!canDoL3Services}
+                            onChange={(e) => updateDhcpPool(index, { dnsServers: e.target.value.split(',').map((s: string) => s.trim()).filter((s: string) => s) })}
+                            placeholder="8.8.8.8, 8.8.4.4"
+                            className="w-full px-3 py-2 border border-slate-300 rounded text-sm disabled:cursor-not-allowed"
+                            />
                         </div>
 
                         <button
                         onClick={() => removeDhcpPool(index)}
                         disabled={!canDoL3Services}
-                        className="mt-3 text-red-600 hover:bg-red-100 px-2 py-1 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="text-red-600 hover:bg-red-100 px-2 py-1 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                         Remove Pool
                         </button>
@@ -413,7 +545,7 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
                         <div>
                             <div className="flex items-center justify-between mb-2">
                                 <label className="text-sm font-semibold text-slate-800">Inside Interfaces</label>
-                                <button onClick={() => addNatInterface('inside')} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">+ Add Interface</button>
+                                <button onClick={() => addNatInterface('insideInterfaces')} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">+ Add Interface</button>
                             </div>
                             <div className="space-y-2">
                                 {(localConfig.nat?.insideInterfaces || []).map((iface: string, idx: number) => (
@@ -421,11 +553,11 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
                                         <input 
                                             type="text" 
                                             value={iface} 
-                                            onChange={(e) => updateNatInterface('inside', idx, e.target.value)}
+                                            onChange={(e) => updateNatInterface('insideInterfaces', idx, e.target.value)}
                                             placeholder="e.g. GigabitEthernet0/1"
                                             className="flex-1 px-3 py-2 border rounded text-sm"
                                         />
-                                        <button onClick={() => removeNatInterface('inside', idx)} className="text-red-500 hover:bg-red-50 px-2 rounded">×</button>
+                                        <button onClick={() => removeNatInterface('insideInterfaces', idx)} className="text-red-500 hover:bg-red-50 px-2 rounded">×</button>
                                     </div>
                                 ))}
                                 {(localConfig.nat?.insideInterfaces || []).length === 0 && <p className="text-xs text-slate-400 italic">No inside interfaces defined.</p>}
@@ -436,7 +568,7 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
                         <div>
                             <div className="flex items-center justify-between mb-2">
                                 <label className="text-sm font-semibold text-slate-800">Outside Interfaces</label>
-                                <button onClick={() => addNatInterface('outside')} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">+ Add Interface</button>
+                                <button onClick={() => addNatInterface('outsideInterfaces')} className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">+ Add Interface</button>
                             </div>
                             <div className="space-y-2">
                                 {(localConfig.nat?.outsideInterfaces || []).map((iface: string, idx: number) => (
@@ -444,11 +576,11 @@ export function ServicesTab({ interfaces, usedSwitchPorts = [], deviceType, swit
                                         <input 
                                             type="text" 
                                             value={iface} 
-                                            onChange={(e) => updateNatInterface('outside', idx, e.target.value)}
+                                            onChange={(e) => updateNatInterface('outsideInterfaces', idx, e.target.value)}
                                             placeholder="e.g. GigabitEthernet0/0"
                                             className="flex-1 px-3 py-2 border rounded text-sm"
                                         />
-                                        <button onClick={() => removeNatInterface('outside', idx)} className="text-red-500 hover:bg-red-50 px-2 rounded">×</button>
+                                        <button onClick={() => removeNatInterface('outsideInterfaces', idx)} className="text-red-500 hover:bg-red-50 px-2 rounded">×</button>
                                     </div>
                                 ))}
                                 {(localConfig.nat?.outsideInterfaces || []).length === 0 && <p className="text-xs text-slate-400 italic">No outside interfaces defined.</p>}

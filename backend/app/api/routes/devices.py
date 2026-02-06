@@ -45,6 +45,130 @@ async def execute_command(
     return await connector.execute_command(request.command)
 
 
+@router.get("/{device_id}/show-running-config", response_model=ExecuteCommandResponse)
+async def show_running_config(
+    device_id: str,
+    project_id: str,
+    session: Session = Depends(get_session_from_header)
+):
+    """Get the running configuration from device"""
+    if settings.MOCK_MODE:
+        # Mock running config for testing
+        mock_config = """Building configuration...
+
+Current configuration : 2547 bytes
+!
+version 15.2
+service timestamps debug datetime msec
+service timestamps log datetime msec
+!
+hostname R1
+!
+boot-start-marker
+boot-end-marker
+!
+enable secret 5 $1$mERr$hx5rVt7rPNoS4wqbXKX7m0
+!
+no aaa new-model
+no ip domain lookup
+ip cef
+!
+interface GigabitEthernet0/0
+ ip address 192.168.1.1 255.255.255.0
+ duplex auto
+ speed auto
+!
+interface GigabitEthernet0/1
+ ip address 10.0.0.1 255.255.255.252
+ duplex auto
+ speed auto
+!
+router ospf 1
+ router-id 1.1.1.1
+ network 192.168.1.0 0.0.0.255 area 0
+ network 10.0.0.0 0.0.0.3 area 0
+!
+ip forward-protocol nd
+!
+no ip http server
+no ip http secure-server
+!
+line con 0
+ logging synchronous
+ exec-timeout 0 0
+line vty 0 4
+ password cisco
+ login
+ transport input ssh
+!
+end"""
+        return ExecuteCommandResponse(
+            ok=True,
+            output=mock_config
+        )
+
+    # Get device info from real GNS3 server
+    from app.gns3.client import GNS3Client
+
+    def _auth_to_dict(auth_obj):
+        if not auth_obj:
+            return None
+        if hasattr(auth_obj, "model_dump"):
+            return auth_obj.model_dump()
+        if hasattr(auth_obj, "dict"):
+            return auth_obj.dict()
+        return None
+
+    try:
+        auth = _auth_to_dict(session.gns3_auth)
+        client = GNS3Client(session.server_url, auth)
+        inventory = await client.get_project_inventory(project_id)
+
+        device = next((d for d in inventory.devices if d.node_id == device_id), None)
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found in project inventory")
+
+        # Check if device is running
+        if device.status != "started":
+            raise HTTPException(status_code=400, detail=f"Device is not running (status: {device.status})")
+
+        # Get console host and port
+        # Note: GNS3 may return console_host as "0.0.0.0" which means listening on all interfaces
+        # When connecting, we need to use the actual server IP or localhost
+        console_host = device.console_host
+        if not console_host or console_host == "0.0.0.0":
+            # Extract hostname from server_url
+            from urllib.parse import urlparse
+            parsed = urlparse(session.server_url)
+            console_host = parsed.hostname or "127.0.0.1"
+
+        console_port = device.console_port
+        if not console_port:
+            raise HTTPException(status_code=400, detail="Device has no console port configured")
+
+        logger.info(f"Connecting to device {device.name} at {console_host}:{console_port}")
+
+        connector = DeviceConnector(
+            host=console_host,
+            port=console_port,
+            credentials=session.device_credentials
+        )
+
+        result = await connector.execute_command("show running-config")
+
+        # If the connector returned an error, raise HTTP exception
+        if not result.ok:
+            logger.error(f"Device command failed: {result.error}")
+            raise HTTPException(status_code=502, detail=result.error or "Failed to execute command on device")
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Show running config failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to get running config: {str(e)}")
+
+
 @router.post("/{device_id}/apply", response_model=ApplyConfigResponse)
 async def apply_config(
     device_id: str,

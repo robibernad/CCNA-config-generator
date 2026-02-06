@@ -2,51 +2,75 @@
 ! Services Configuration
 !
 {% for excl in dhcp_exclusions %}
+{% if excl.start %}
+{% if excl.end %}
 ip dhcp excluded-address {{ excl.start }} {{ excl.end }}
+{% else %}
+ip dhcp excluded-address {{ excl.start }}
+{% endif %}
+{% endif %}
 {% endfor %}
 {% if dhcp_exclusions %}
 !
 {% endif %}
 {% for pool in dhcp_pools %}
+{% if pool.name and pool.network and pool.mask %}
 ip dhcp pool {{ pool.name }}
  network {{ pool.network }} {{ pool.mask }}
 {% if pool.default_gateway %}
  default-router {{ pool.default_gateway }}
 {% endif %}
 {% for dns in pool.dns_servers %}
+{% if dns %}
  dns-server {{ dns }}
+{% endif %}
 {% endfor %}
 {% if pool.domain_name %}
  domain-name {{ pool.domain_name }}
 {% endif %}
+{% if pool.lease_days %}
  lease {{ pool.lease_days }}
+{% endif %}
 !
+{% endif %}
 {% endfor %}
 {% for hsrp in hsrp_configs %}
+{% if hsrp.interface and hsrp.group and hsrp.virtual_ip %}
 interface {{ hsrp.interface }}
  standby {{ hsrp.group }} ip {{ hsrp.virtual_ip }}
+{% if hsrp.priority %}
  standby {{ hsrp.group }} priority {{ hsrp.priority }}
+{% endif %}
 {% if hsrp.preempt %}
  standby {{ hsrp.group }} preempt
 {% endif %}
 !
+{% endif %}
 {% endfor %}
 {% if nat %}
 {% for iface in nat.inside_interfaces %}
+{% if iface %}
 interface {{ iface }}
  ip nat inside
 !
+{% endif %}
 {% endfor %}
 {% for iface in nat.outside_interfaces %}
+{% if iface %}
 interface {{ iface }}
  ip nat outside
 !
+{% endif %}
 {% endfor %}
 {% for static in nat.static_entries %}
+{% if static.inside_local and static.inside_global %}
 ip nat inside source static {{ static.inside_local }} {{ static.inside_global }}
+{% endif %}
 {% endfor %}
 {% for pool in nat.pools %}
+{% if pool.name and pool.start_ip and pool.end_ip and pool.netmask %}
 ip nat pool {{ pool.name }} {{ pool.start_ip }} {{ pool.end_ip }} netmask {{ pool.netmask }}
+{% endif %}
 {% endfor %}
 {% if nat.pat_interface and nat.pat_acl %}
 ip nat inside source list {{ nat.pat_acl }} interface {{ nat.pat_interface }} overload

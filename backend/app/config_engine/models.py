@@ -128,9 +128,13 @@ class InterfaceAddress(BaseModel):
     shutdown: bool = False
     
     # New features for WAN/VPN/MPLS
-    vrf: Optional[str] = None 
+    vrf: Optional[str] = None
     crypto_map: Optional[str] = Field(None, alias="cryptoMap")
-    mpls_ip: bool = Field(False, alias="mplsIp")  # NEW: Enable MPLS on interface
+    mpls_ip: bool = Field(False, alias="mplsIp")  # Enable MPLS on interface
+
+    # IPsec Router specific settings (for router-ipsec device type)
+    duplex: Optional[str] = None  # full, half, auto
+    speed: Optional[str] = None   # 10, 100, 1000, auto
 
     class Config:
         populate_by_name = True
@@ -392,6 +396,10 @@ class RoutingConfig(BaseModel):
     # New Advanced Routing
     bgp: Optional[BGPConfig] = None
     vrfs: List[VRFConfig] = Field(default_factory=list)
+
+    # Route Redistribution
+    redistribute_enabled: bool = Field(False, alias="redistributeEnabled")
+    redistribute_metric: Optional[str] = Field(None, alias="redistributeMetric")  # For EIGRP: "bandwidth delay reliability load mtu"
 
     class Config:
         populate_by_name = True

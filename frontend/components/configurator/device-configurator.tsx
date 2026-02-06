@@ -10,10 +10,12 @@ import { PreviewTab } from './preview-tab'
 import { apiClient } from '@/lib/api/client'
 import { getUsedSwitchPorts } from '@/lib/utils/interfaces'
 
+type DeviceType = 'switch' | 'router' | 'router-ipsec' | 'nat' | 'cloud'
+
 interface Device {
   nodeId: string
   name: string
-  deviceType: string
+  deviceType: DeviceType
   interfaces: Array<{
     name: string
     connected: boolean
@@ -91,8 +93,11 @@ function defaultRouting() {
   };
 }
 
-export function DeviceConfigurator({ device }: { device: Device }) {
+export function DeviceConfigurator({ device, projectId }: { device: Device; projectId: string }) {
   const [activeTab, setActiveTab] = useState('addressing')
+  const [showRunningConfig, setShowRunningConfig] = useState(false)
+  const [runningConfig, setRunningConfig] = useState<string>('')
+  const [loadingConfig, setLoadingConfig] = useState(false)
 
   // Identify device capabilities
   const isSwitch = device.deviceType === 'switch'
@@ -146,7 +151,6 @@ export function DeviceConfigurator({ device }: { device: Device }) {
       const next: IntendedConfig = { ...prev }
 
       if (!next.security) {
-        // @ts-expect-error - lightweight typing
         next.security = defaultSecurity()
         changed = true
       }
@@ -156,12 +160,10 @@ export function DeviceConfigurator({ device }: { device: Device }) {
       
       if (needsL3) {
         if (!next.routing) {
-          // @ts-expect-error - lightweight typing
           next.routing = defaultRouting()
           changed = true
         }
         if (!next.services) {
-          // @ts-expect-error - lightweight typing
           next.services = defaultServices()
           changed = true
         }
@@ -207,6 +209,36 @@ export function DeviceConfigurator({ device }: { device: Device }) {
     }
   }
 
+  const fetchRunningConfig = async () => {
+    console.log('🔍 Fetching running config for device:', device.nodeId, 'in project:', projectId)
+    setLoadingConfig(true)
+    setError(null)
+
+    try {
+      console.log('📡 Calling API endpoint...')
+      const result = await apiClient.showRunningConfig(device.nodeId, projectId)
+      console.log('✅ API call successful, result:', result)
+
+      // Check if the result indicates an error (backend returns ok=false with error field)
+      if (!result.ok && result.error) {
+        console.error('❌ Backend returned error:', result.error)
+        setError(result.error)
+        return
+      }
+
+      setRunningConfig(result.output || 'No configuration available')
+      setShowRunningConfig(true)
+    } catch (err) {
+      console.error('❌ Error fetching running config:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch running config'
+      console.error('Error message:', errorMessage)
+      setError(errorMessage)
+    } finally {
+      setLoadingConfig(false)
+      console.log('🏁 fetchRunningConfig complete')
+    }
+  }
+
   const filteredTabs = TABS.filter((tab) => {
     // --- 1. NAT Device Logic ---
     if (isNatDevice) {
@@ -240,15 +272,26 @@ export function DeviceConfigurator({ device }: { device: Device }) {
             </p>
           </div>
 
+          {/* Show Running Config Button */}
+          <button
+            onClick={fetchRunningConfig}
+            disabled={loadingConfig}
+            className="ml-auto px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            title="Show current running configuration from device"
+          >
+            <span>📄</span>
+            {loadingConfig ? 'Loading...' : 'Show Running Config'}
+          </button>
+
           {/* Switch type toggle */}
           {isSwitch && (
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-4 flex items-center gap-2">
               <span className="text-sm text-slate-600">Switch type</span>
               <select
                 value={config.switchType || 'l2'}
                 onChange={(e) => updateTopLevel({ switchType: e.target.value as 'l2' | 'msw' })}
                 className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
-                title="L2 switches don’t run routing protocols. MSW enables inter-VLAN routing and L3 services."
+                title="L2 switches don't run routing protocols. MSW enables inter-VLAN routing and L3 services."
               >
                 <option value="l2">L2 (default)</option>
                 <option value="msw">MSW (multilayer)</option>
@@ -334,7 +377,6 @@ export function DeviceConfigurator({ device }: { device: Device }) {
             config={config.services}
             onUpdate={(data) => updateConfig('services', data)}
             // Pass context to control visibility of NAT vs General services
-            // @ts-expect-error - Adding prop dynamically before file is updated
             context={isNatDevice ? 'nat' : 'router'}
           />
         )}
@@ -349,6 +391,46 @@ export function DeviceConfigurator({ device }: { device: Device }) {
           />
         )}
       </div>
+
+      {/* Running Config Modal */}
+      {showRunningConfig && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-bold text-slate-800">
+                Running Configuration - {device.name}
+              </h3>
+              <button
+                onClick={() => setShowRunningConfig(false)}
+                className="text-slate-500 hover:text-slate-700 text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <pre className="bg-slate-900 text-green-400 p-4 rounded-lg font-mono text-sm overflow-x-auto whitespace-pre">
+                {runningConfig || 'No configuration available'}
+              </pre>
+            </div>
+            <div className="p-4 border-t flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(runningConfig)
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+              >
+                📋 Copy to Clipboard
+              </button>
+              <button
+                onClick={() => setShowRunningConfig(false)}
+                className="px-4 py-2 bg-slate-600 text-white rounded-lg text-sm hover:bg-slate-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
