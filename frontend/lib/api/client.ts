@@ -107,19 +107,20 @@ class ApiClient {
     })
   }
 
-  async applyConfig(deviceId: string, commands: string[], saveConfig: boolean = true) {
+  async applyConfig(deviceId: string, commands: string[], saveConfig: boolean = true, deviceCredentials?: any) {
     return this.request<any>(`/devices/${deviceId}/apply`, {
       method: 'POST',
-      body: JSON.stringify({ commands, saveConfig }),
+      body: JSON.stringify({ commands, saveConfig, deviceCredentials }),
     })
   }
 
-  async showRunningConfig(deviceId: string, projectId: string) {
+  async showRunningConfig(deviceId: string, projectId: string, deviceCredentials?: any) {
     console.log('🌐 API Client: showRunningConfig called with deviceId:', deviceId, 'projectId:', projectId)
     const endpoint = `/devices/${deviceId}/show-running-config?project_id=${projectId}`
     console.log('🌐 API Client: endpoint:', endpoint)
     return this.request<any>(endpoint, {
-      method: 'GET',
+      method: 'POST',
+      body: deviceCredentials ? JSON.stringify({ deviceCredentials }) : JSON.stringify({}),
     })
   }
 
@@ -128,6 +129,19 @@ class ApiClient {
     return this.request<any>('/verify/run', {
       method: 'POST',
       body: JSON.stringify({ deviceId, pack }),
+    })
+  }
+
+  // AI Validation
+  async validateConfig(labRequirements: string, rawConfig: string, runningConfig?: string) {
+    console.log('🤖 API Client: validateConfig called')
+    return this.request<any>('/config/validate', {
+      method: 'POST',
+      body: JSON.stringify({
+        labRequirements,
+        rawConfig,
+        runningConfig
+      }),
     })
   }
 }

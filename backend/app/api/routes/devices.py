@@ -1,14 +1,32 @@
 """Device operation API routes"""
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
+from typing import Optional
+from pydantic import BaseModel, Field
 
 from app.core.config import settings
-from app.sessions.models import Session
+from app.sessions.models import Session, DeviceCredentials
 from app.api.routes.session import get_session_from_header
 from app.devices.models import ExecuteCommandRequest, ExecuteCommandResponse, ApplyConfigRequest, ApplyConfigResponse
 from app.devices.connector import DeviceConnector
 
 router = APIRouter(prefix="/devices", tags=["devices"])
+
+
+def get_device_credentials(
+    per_device_creds: Optional[DeviceCredentials],
+    session: Session
+) -> DeviceCredentials:
+    """Get credentials with per-device override fallback to session credentials"""
+    credentials = per_device_creds or session.device_credentials
+
+    if not credentials:
+        raise HTTPException(
+            status_code=400,
+            detail="Device credentials required. Please provide credentials for this device."
+        )
+
+    return credentials
 
 
 @router.post("/{device_id}/execute", response_model=ExecuteCommandResponse)
@@ -24,31 +42,43 @@ async def execute_command(
             ok=True,
             output=get_mock_show_output(request.command)
         )
-    
+
     # Get device info from GNS3
     from app.gns3.client import GNS3Client
     from app.mocks.gns3_data import get_mock_inventory
-    
+
     # For now, use mock to get device info
     inventory = get_mock_inventory("proj-001")
     device = next((d for d in inventory.devices if d.node_id == device_id), None)
-    
+
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
+    # Get credentials with per-device override
+    credentials = get_device_credentials(request.device_credentials, session)
+
     connector = DeviceConnector(
         host=device.console_host or "127.0.0.1",
         port=device.console_port or 5000,
-        credentials=session.device_credentials
+        credentials=credentials
     )
-    
+
     return await connector.execute_command(request.command)
 
 
-@router.get("/{device_id}/show-running-config", response_model=ExecuteCommandResponse)
+class ShowRunningConfigRequest(BaseModel):
+    """Request to get running configuration"""
+    device_credentials: Optional[DeviceCredentials] = Field(None, alias="deviceCredentials")
+
+    class Config:
+        populate_by_name = True
+
+
+@router.post("/{device_id}/show-running-config", response_model=ExecuteCommandResponse)
 async def show_running_config(
     device_id: str,
     project_id: str,
+    request: ShowRunningConfigRequest,
     session: Session = Depends(get_session_from_header)
 ):
     """Get the running configuration from device"""
@@ -148,10 +178,13 @@ end"""
 
         logger.info(f"Connecting to device {device.name} at {console_host}:{console_port}")
 
+        # Get credentials with per-device override
+        credentials = get_device_credentials(request.device_credentials, session)
+
         connector = DeviceConnector(
             host=console_host,
             port=console_port,
-            credentials=session.device_credentials
+            credentials=credentials
         )
 
         result = await connector.execute_command("show running-config")
@@ -195,14 +228,17 @@ async def apply_config(
     from app.mocks.gns3_data import get_mock_inventory
     inventory = get_mock_inventory("proj-001")
     device = next((d for d in inventory.devices if d.node_id == device_id), None)
-    
+
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
+    # Get credentials with per-device override
+    credentials = get_device_credentials(request.device_credentials, session)
+
     connector = DeviceConnector(
         host=device.console_host or "127.0.0.1",
         port=device.console_port or 5000,
-        credentials=session.device_credentials
+        credentials=credentials
     )
-    
+
     return await connector.apply_config(request.commands, request.save_config)

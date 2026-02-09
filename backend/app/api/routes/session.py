@@ -31,8 +31,8 @@ async def create_session(request: CreateSessionRequest):
         sessionId=session.session_id,
         serverUrl=session.server_url,
         hasGns3Auth=session.gns3_auth is not None,
-        deviceUsername=session.device_credentials.username,
-        deviceTransport=session.device_credentials.transport,
+        deviceUsername=session.device_credentials.username if session.device_credentials else None,
+        deviceTransport=session.device_credentials.transport if session.device_credentials else None,
         createdAt=session.created_at,
         expiresAt=session.expires_at
     )
@@ -49,8 +49,8 @@ async def get_session(session_id: str):
         sessionId=session.session_id,
         serverUrl=session.server_url,
         hasGns3Auth=session.gns3_auth is not None,
-        deviceUsername=session.device_credentials.username,
-        deviceTransport=session.device_credentials.transport,
+        deviceUsername=session.device_credentials.username if session.device_credentials else None,
+        deviceTransport=session.device_credentials.transport if session.device_credentials else None,
         createdAt=session.created_at,
         expiresAt=session.expires_at
     )

@@ -11,10 +11,6 @@ export default function HomePage() {
   const [serverUrl, setServerUrl] = useState('')
   const [gns3Username, setGns3Username] = useState('')
   const [gns3Password, setGns3Password] = useState('')
-  const [deviceUsername, setDeviceUsername] = useState('cisco')
-  const [devicePassword, setDevicePassword] = useState('cisco')
-  const [enableSecret, setEnableSecret] = useState('cisco')
-  const [transport, setTransport] = useState('telnet')
   const [connectionError, setConnectionError] = useState<string | null>(null)
 
   const normalizeServerUrl = (raw: string) => {
@@ -41,12 +37,6 @@ export default function HomePage() {
     const session = await createSession({
       serverUrl: normalized,
       gns3Auth: gns3Username ? { username: gns3Username, password: gns3Password } : undefined,
-      deviceCredentials: {
-        username: deviceUsername,
-        password: devicePassword,
-        enableSecret: enableSecret,
-        transport: transport,
-      },
     })
 
     if (session) {
@@ -60,12 +50,6 @@ export default function HomePage() {
 
     const session = await createSession({
       serverUrl: 'mock://localhost',
-      deviceCredentials: {
-        username: 'cisco',
-        password: 'cisco',
-        enableSecret: 'cisco',
-        transport: 'telnet',
-      },
     })
 
     if (session) {
@@ -136,65 +120,6 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Device Credentials */}
-          <div>
-            <h3 className="text-lg font-semibold text-slate-700 mb-3">
-              Device Credentials
-            </h3>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    Username
-                  </label>
-                  <input
-                    type="text"
-                    value={deviceUsername}
-                    onChange={(e) => setDeviceUsername(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    Password
-                  </label>
-                  <input
-                    type="password"
-                    value={devicePassword}
-                    onChange={(e) => setDevicePassword(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    Enable Secret
-                  </label>
-                  <input
-                    type="password"
-                    value={enableSecret}
-                    onChange={(e) => setEnableSecret(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">
-                    Transport
-                  </label>
-                  <select
-                    value={transport}
-                    onChange={(e) => setTransport(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="telnet">Telnet</option>
-                    <option value="ssh">SSH</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Actions */}
           <div className="flex gap-4 pt-4">
             <button
@@ -221,7 +146,7 @@ export default function HomePage() {
         <ul className="text-sm text-blue-700 space-y-1">
           <li>• <strong>Connect to GNS3:</strong> Enter your GNS3 server URL and click "Connect to GNS3"</li>
           <li>• <strong>Mock Server:</strong> Click "Use Mock Server" to test without a real GNS3 server</li>
-          <li>• Device credentials are used for Telnet/SSH connections to network devices</li>
+          <li>• <strong>Device Credentials:</strong> Configure per-device credentials when working with each device (optional)</li>
         </ul>
       </div>
 

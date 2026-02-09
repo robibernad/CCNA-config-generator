@@ -411,6 +411,26 @@ def validate_config(config: IntendedConfig) -> ValidationResult:
             if tun.adjust_mss is not None and (tun.adjust_mss < 500 or tun.adjust_mss > 1460):
                 result.add_warning(f"{base}: adjust-mss {tun.adjust_mss} looks unusual (expected ~500-1460).")
 
+        # Route Redistribution
+        if config.routing.redistribute_enabled:
+            ospf_enabled = config.routing.ospf and config.routing.ospf.process_id
+            eigrp_enabled = config.routing.eigrp and config.routing.eigrp.enabled
+
+            if not (ospf_enabled and eigrp_enabled):
+                result.add_warning(
+                    "Redistribution enabled but requires both OSPF and EIGRP. "
+                    "Redistribution commands will be skipped."
+                )
+
+            # Warn if custom metric is malformed
+            if config.routing.redistribute_metric:
+                parts = config.routing.redistribute_metric.split()
+                if len(parts) != 5:
+                    result.add_warning(
+                        f"EIGRP metric should have 5 values (bandwidth delay reliability load mtu). "
+                        f"Got: {config.routing.redistribute_metric}. Default metric will be used instead."
+                    )
+
     # --------------------------
     # Services validation
     # --------------------------

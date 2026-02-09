@@ -1,7 +1,7 @@
 """Configuration generation API routes"""
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
-from typing import List, Dict
+from typing import List, Dict, Optional
 from loguru import logger
 
 from app.sessions.models import Session
@@ -52,4 +52,75 @@ async def generate_config(
         raise
     except Exception as e:
         logger.error(f"Config generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============ AI Validation ============
+
+
+class ValidateConfigRequest(BaseModel):
+    """Config validation request"""
+    lab_requirements: str = Field(..., alias="labRequirements")
+    raw_config: str = Field(..., alias="rawConfig")
+    running_config: Optional[str] = Field(None, alias="runningConfig")
+
+    class Config:
+        populate_by_name = True
+
+
+class ValidationIssue(BaseModel):
+    """Single validation issue"""
+    severity: str
+    message: str
+    section: Optional[str] = None
+    recommended_fix: Optional[str] = Field(None, alias="recommendedFix")
+
+    class Config:
+        populate_by_name = True
+
+
+class ValidateConfigResponse(BaseModel):
+    """Config validation response"""
+    is_compliant: bool = Field(..., alias="isCompliant")
+    issues: List[ValidationIssue]
+    enhanced_config: Optional[str] = Field(None, alias="enhancedConfig")
+    notes: str
+
+    class Config:
+        populate_by_name = True
+
+
+@router.post("/validate", response_model=ValidateConfigResponse)
+async def validate_config(
+    request: ValidateConfigRequest,
+    session: Session = Depends(get_session_from_header)
+):
+    """Validate configuration using AI"""
+    try:
+        from app.ai.openai_client import OpenAIClient
+
+        client = OpenAIClient()
+        result = await client.validate_config(
+            lab_requirements=request.lab_requirements,
+            raw_config=request.raw_config,
+            running_config=request.running_config
+        )
+
+        return ValidateConfigResponse(
+            isCompliant=result.is_compliant,
+            issues=[
+                ValidationIssue(
+                    severity=issue.severity,
+                    message=issue.message,
+                    section=issue.section,
+                    recommendedFix=issue.recommended_fix
+                )
+                for issue in result.issues
+            ],
+            enhancedConfig=result.enhanced_config,
+            notes=result.notes
+        )
+
+    except Exception as e:
+        logger.error(f"Validation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

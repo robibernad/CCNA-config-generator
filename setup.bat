@@ -56,6 +56,7 @@ echo ========================================
 echo  Setup Complete!
 echo ========================================
 echo.
+call "%~dp0start.bat"
 echo Run 'start.bat' to start the application
 echo.
 pause

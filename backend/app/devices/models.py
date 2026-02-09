@@ -2,10 +2,17 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
+# Import DeviceCredentials for per-device credential support
+from app.sessions.models import DeviceCredentials
+
 
 class ExecuteCommandRequest(BaseModel):
     """Request to execute command on device"""
     command: str
+    device_credentials: Optional[DeviceCredentials] = Field(None, alias="deviceCredentials")
+
+    class Config:
+        populate_by_name = True
 
 
 class ExecuteCommandResponse(BaseModel):
@@ -19,6 +26,10 @@ class ApplyConfigRequest(BaseModel):
     """Request to apply configuration"""
     commands: List[str]
     save_config: bool = Field(True, alias="saveConfig")
+    device_credentials: Optional[DeviceCredentials] = Field(None, alias="deviceCredentials")
+
+    class Config:
+        populate_by_name = True
 
 
 class ApplyConfigResponse(BaseModel):

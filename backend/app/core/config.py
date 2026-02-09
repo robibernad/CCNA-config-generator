@@ -1,6 +1,6 @@
 """Application configuration management"""
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -28,6 +28,10 @@ class Settings(BaseSettings):
 
     # Security
     ALLOW_LOCALHOST_GNS3: bool = True
+
+    # AI Validation (Optional)
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4"
 
     @property
     def cors_origins_list(self) -> List[str]:

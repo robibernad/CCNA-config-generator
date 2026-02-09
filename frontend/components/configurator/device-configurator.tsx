@@ -99,6 +99,15 @@ export function DeviceConfigurator({ device, projectId }: { device: Device; proj
   const [runningConfig, setRunningConfig] = useState<string>('')
   const [loadingConfig, setLoadingConfig] = useState(false)
 
+  // Device-specific credentials (optional)
+  const [useCustomCredentials, setUseCustomCredentials] = useState(false)
+  const [deviceCredentials, setDeviceCredentials] = useState({
+    username: 'cisco',
+    password: 'cisco',
+    enableSecret: 'cisco',
+    transport: 'telnet'
+  })
+
   // Identify device capabilities
   const isSwitch = device.deviceType === 'switch'
   const isRouter = device.deviceType === 'router'
@@ -216,7 +225,11 @@ export function DeviceConfigurator({ device, projectId }: { device: Device; proj
 
     try {
       console.log('📡 Calling API endpoint...')
-      const result = await apiClient.showRunningConfig(device.nodeId, projectId)
+      const result = await apiClient.showRunningConfig(
+        device.nodeId,
+        projectId,
+        useCustomCredentials ? deviceCredentials : undefined
+      )
       console.log('✅ API call successful, result:', result)
 
       // Check if the result indicates an error (backend returns ok=false with error field)
@@ -296,6 +309,77 @@ export function DeviceConfigurator({ device, projectId }: { device: Device; proj
                 <option value="l2">L2 (default)</option>
                 <option value="msw">MSW (multilayer)</option>
               </select>
+            </div>
+          )}
+        </div>
+
+        {/* Optional Device Credentials */}
+        <div className="mt-3 border-t border-slate-200 pt-3">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useCustomCredentials}
+              onChange={(e) => setUseCustomCredentials(e.target.checked)}
+              className="rounded border-slate-300"
+            />
+            <span className="text-slate-700 font-medium">Use custom credentials for this device</span>
+            <span className="text-slate-500 text-xs">(optional - for devices with passwords already configured)</span>
+          </label>
+
+          {useCustomCredentials && (
+            <div className="mt-3 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+              <h4 className="text-sm font-semibold text-slate-700 mb-3">Device Credentials</h4>
+              <div className="grid grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Username
+                  </label>
+                  <input
+                    type="text"
+                    value={deviceCredentials.username}
+                    onChange={(e) => setDeviceCredentials({...deviceCredentials, username: e.target.value})}
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm"
+                    placeholder="cisco"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    value={deviceCredentials.password}
+                    onChange={(e) => setDeviceCredentials({...deviceCredentials, password: e.target.value})}
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm"
+                    placeholder="cisco"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Enable Secret
+                  </label>
+                  <input
+                    type="password"
+                    value={deviceCredentials.enableSecret}
+                    onChange={(e) => setDeviceCredentials({...deviceCredentials, enableSecret: e.target.value})}
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm"
+                    placeholder="cisco"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Transport
+                  </label>
+                  <select
+                    value={deviceCredentials.transport}
+                    onChange={(e) => setDeviceCredentials({...deviceCredentials, transport: e.target.value})}
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white"
+                  >
+                    <option value="telnet">Telnet</option>
+                    <option value="ssh">SSH</option>
+                  </select>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -388,6 +472,7 @@ export function DeviceConfigurator({ device, projectId }: { device: Device; proj
             generatedConfig={generatedConfig}
             isGenerating={isGenerating}
             onGenerate={generatePreview}
+            deviceCredentials={useCustomCredentials ? deviceCredentials : undefined}
           />
         )}
       </div>

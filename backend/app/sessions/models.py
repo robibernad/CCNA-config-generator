@@ -28,7 +28,7 @@ class CreateSessionRequest(BaseModel):
     """Request to create a session"""
     server_url: str = Field(..., alias="serverUrl")
     gns3_auth: Optional[GNS3Auth] = Field(None, alias="gns3Auth")
-    device_credentials: DeviceCredentials = Field(..., alias="deviceCredentials")
+    device_credentials: Optional[DeviceCredentials] = Field(None, alias="deviceCredentials")
 
     class Config:
         populate_by_name = True
@@ -39,7 +39,7 @@ class Session(BaseModel):
     session_id: str = Field(..., alias="sessionId")
     server_url: str = Field(..., alias="serverUrl")
     gns3_auth: Optional[GNS3Auth] = Field(None, alias="gns3Auth")
-    device_credentials: DeviceCredentials = Field(..., alias="deviceCredentials")
+    device_credentials: Optional[DeviceCredentials] = Field(None, alias="deviceCredentials")
     created_at: datetime = Field(..., alias="createdAt")
     expires_at: datetime = Field(..., alias="expiresAt")
 
@@ -52,8 +52,8 @@ class SessionResponse(BaseModel):
     session_id: str = Field(..., alias="sessionId")
     server_url: str = Field(..., alias="serverUrl")
     has_gns3_auth: bool = Field(..., alias="hasGns3Auth")
-    device_username: str = Field(..., alias="deviceUsername")
-    device_transport: str = Field(..., alias="deviceTransport")
+    device_username: Optional[str] = Field(None, alias="deviceUsername")
+    device_transport: Optional[str] = Field(None, alias="deviceTransport")
     created_at: datetime = Field(..., alias="createdAt")
     expires_at: datetime = Field(..., alias="expiresAt")
 
